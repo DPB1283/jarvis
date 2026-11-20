@@ -312,3 +312,5 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
 .api-key-status[data-saved="true"] { color: var(--aqua); }
 .api-key-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .api-key-controls input { flex: 1 1 180px; min-width: 0; }
+
+.dictation-status { padding: 4px 8px; border-radius: 5px; background: var(--panel); color: var(--aqua); font: 600 12px system-ui, sans-serif; }

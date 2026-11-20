@@ -62,6 +62,10 @@ imported on first start.
 
 - **Wake word:** say "Jarvis". **Hotkey:** `Control+Space` opens the text box. Both are changeable in Settings.
 - **Cut him off:** left-click the orb while he's talking, or just start talking over him.
+- **Voice typing:** say "start dictation" and what you say is typed into the focused window (with spoken
+  "comma", "period", "new line", "scratch that"). Say "stop dictation" to finish.
+- **Photos of part of the screen:** ask for a screenshot of one window ("just my Discord window"), a part of the
+  screen, or of Jarvis himself ("take a photo of yourself").
 - **Modes:** the safety mode and personality (including "Ultron mode": say "enable Ultron mode") are in Settings.
 - **Screen shares and recordings:** by default Jarvis is visible in screenshots, recordings and screen shares.
   Turn that off in Settings → Display. He cannot appear over *exclusive*-fullscreen games, only borderless or

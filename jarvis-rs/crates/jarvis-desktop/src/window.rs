@@ -125,3 +125,75 @@ pub fn idle_seconds() -> f64 {
     }
 }
 
+
+/// A visible top-level window found by [`find`].
+#[derive(Debug, Clone)]
+pub struct Found {
+    pub bounds: Rect,
+    pub title: String,
+    pub exe: String,
+}
+
+/// The frontmost visible, non-minimised top-level window whose title or program name contains `query`
+/// (case-insensitive), skipping the desktop and taskbar. Bounds are physical pixels.
+pub fn find(query: &str) -> Option<Found> {
+    use windows::Win32::Foundation::LPARAM;
+    use windows::core::BOOL;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, IsIconic, IsWindowVisible};
+
+    struct Search {
+        needle: String,
+        found: Option<Found>,
+    }
+    unsafe extern "system" fn visit(window: HWND, data: LPARAM) -> BOOL {
+        let search = unsafe { &mut *(data.0 as *mut Search) };
+        unsafe {
+            if !IsWindowVisible(window).as_bool() || IsIconic(window).as_bool() {
+                return true.into();
+            }
+            if DESKTOP_CLASSES.contains(&class_name(window).as_str()) {
+                return true.into();
+            }
+            let mut buffer = [0u16; 512];
+            let length = GetWindowTextW(window, &mut buffer).max(0) as usize;
+            let title = String::from_utf16_lossy(&buffer[..length]);
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(window, Some(&mut pid));
+            let exe = process_name(pid);
+            let matches = title.to_lowercase().contains(&search.needle)
+                || exe.to_lowercase().trim_end_matches(".exe").contains(search.needle.trim_end_matches(".exe"));
+            if !matches || title.is_empty() {
+                return true.into();
+            }
+            let mut rect = RECT::default();
+            if GetWindowRect(window, &mut rect).is_err() || rect.right <= rect.left || rect.bottom <= rect.top {
+                return true.into();
+            }
+            search.found = Some(Found { bounds: rect.into(), title, exe });
+        }
+        false.into() // EnumWindows walks front to back, so the first match is the frontmost
+    }
+
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+    per_monitor(|| {
+        let mut search = Search { needle, found: None };
+        unsafe {
+            let _ = EnumWindows(Some(visit), LPARAM(&mut search as *mut Search as isize));
+        }
+        search.found
+    })
+}
+
+#[cfg(test)]
+mod find_tests {
+    #[test]
+    #[ignore = "needs real windows on screen"]
+    fn finds_live_windows() {
+        for query in ["Jarvis HUD", "Discord", "code", "definitely-not-a-window-9f3"] {
+            println!("{query:?} -> {:?}", super::find(query));
+        }
+    }
+}

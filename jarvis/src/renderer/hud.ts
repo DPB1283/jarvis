@@ -10,6 +10,7 @@ export function mountHud() {
   const captions = document.querySelector<HTMLElement>("#captions")!;
   const user = document.querySelector<HTMLElement>("#user-caption")!;
   const assistant = document.querySelector<HTMLElement>("#assistant-caption")!;
+  const dictationStatus = document.querySelector<HTMLElement>("#dictation-status")!;
   const fullAccess = document.querySelector<HTMLElement>("#full-access")!;
   const approvals = document.querySelector<HTMLElement>("#approvals")!;
   const form = document.querySelector<HTMLFormElement>("#message-form")!;
@@ -141,6 +142,9 @@ export function mountHud() {
           toast.hidden = true;
         }
         updateCaptions();
+        break;
+      case "dictation":
+        dictationStatus.hidden = !event.active;
         break;
       case "timers":
         receivedTimers = true;

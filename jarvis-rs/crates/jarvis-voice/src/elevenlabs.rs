@@ -37,6 +37,7 @@ pub enum Transcript {
     Partial(String),
     Final(String),
     Failed,
+    NoSpeech,
 }
 
 pub async fn transcribe(
@@ -69,7 +70,8 @@ pub async fn transcribe(
                             let _ = changes.send((generation, Transcript::Final(last_partial))).await;
                             return Ok(());
                         }
-                        bail!("No speech was transcribed.");
+                        let _ = changes.send((generation, Transcript::NoSpeech)).await;
+                        return Ok(());
                     }
                     socket.send(Message::Text(json!({"message_type":"input_audio_chunk","audio_base_64":"","sample_rate":INPUT_RATE,"commit":true}).to_string().into())).await?;
                     commit_sent = true;
@@ -177,7 +179,9 @@ pub async fn stream_speech(
             let mut samples = Vec::new();
             for value in bytes {
                 if let Some(lo) = odd_byte.take() {
-                    let decoded = (f32::from(i16::from_le_bytes([lo, value])) / 32768.0 * (voice.volume.clamp(0.0, 200.0) as f32 / 100.0)).clamp(-1.0, 1.0);
+                    let decoded = (f32::from(i16::from_le_bytes([lo, value])) / 32768.0
+                        * (voice.volume.clamp(0.0, 200.0) as f32 / 100.0))
+                        .clamp(-1.0, 1.0);
                     converter.push(decoded, |sample| samples.push(sample));
                 } else {
                     odd_byte = Some(value);

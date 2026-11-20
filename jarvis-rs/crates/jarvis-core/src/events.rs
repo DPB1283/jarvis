@@ -90,6 +90,7 @@ pub enum Event {
     Toast { level: ToastLevel, text: String },
     SettingsChanged { settings: Box<Settings> },
     RoutinesChanged {},
+    Dictation { active: bool },
     VirtualPointer { x: i32, y: i32 },
     /// Full list of running timers whenever it changes.
     Timers { timers: Vec<TimerInfo> },
@@ -119,6 +120,7 @@ impl Event {
             Event::Toast { .. } => "toast",
             Event::SettingsChanged { .. } => "settings_changed",
             Event::RoutinesChanged {} => "routines_changed",
+            Event::Dictation { .. } => "dictation",
             Event::VirtualPointer { .. } => "virtual_pointer",
             Event::Timers { .. } => "timers",
             Event::TimerDone { .. } => "timer_done",

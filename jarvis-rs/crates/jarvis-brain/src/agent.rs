@@ -104,6 +104,16 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
         session
             .messages
             .push(json!({"role":"assistant","content":response.content}));
+        // He said something before reaching for a tool ("Right away, sir."): speak it now, not with the final
+        // answer, and keep the two apart.
+        if response.content.iter().any(|b| b["type"] == "tool_use") {
+            if let Some(text) = chunker.flush() {
+                ctx.bus.emit(Event::Speak { text });
+            }
+            if !spoken.is_empty() && !spoken.ends_with(char::is_whitespace) {
+                spoken.push(' ');
+            }
+        }
         let mut results = Vec::new();
         let mut computer_failed = false;
         for block in response.content.iter().filter(|b| b["type"] == "tool_use") {
@@ -219,6 +229,7 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
         let mut approval = None;
         let mut state = JarvisState::Idle;
         let mut game = false;
+        let mut dictating = false;
         let mut schedules = tokio::time::interval_at(
             tokio::time::Instant::now() + Duration::from_secs(5),
             Duration::from_secs(30),
@@ -258,6 +269,15 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
                     state = current;
                     continue;
                 }
+                // Voice typing: what he hears goes into the focused window, not into a conversation.
+                Event::Dictation { active } => {
+                    dictating = active;
+                    if active {
+                        turns.abort_all();
+                        approval = None;
+                    }
+                    continue;
+                }
                 Event::UserText { text }
                 | Event::UserSaid {
                     text,
@@ -284,7 +304,7 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
                 }
                 _ => continue,
             };
-            if input.trim().is_empty() {
+            if input.trim().is_empty() || dictating {
                 continue;
             }
             if let Some(id) = approval.as_ref() {

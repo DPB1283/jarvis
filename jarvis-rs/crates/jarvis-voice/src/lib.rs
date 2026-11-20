@@ -1,5 +1,6 @@
 mod audio;
 mod barge;
+mod dictation;
 mod elevenlabs;
 mod wake;
 
@@ -78,6 +79,9 @@ struct Runtime {
     settings: Settings,
     current: JarvisState,
     game_mode: bool,
+    dictating: bool,
+    dictation_last: Instant,
+    dictation_previous: Option<(usize, usize)>,
     follow_until: Option<Instant>,
     follow_mode: bool,
     last_wake: Option<Instant>,
@@ -119,6 +123,9 @@ pub fn start_voice(bus: Bus, settings: SettingsStore) -> VoiceHandle {
         settings: settings.get(),
         current: JarvisState::Idle,
         game_mode: false,
+        dictating: false,
+        dictation_last: Instant::now(),
+        dictation_previous: None,
         follow_until: None,
         follow_mode: false,
         last_wake: None,
@@ -155,7 +162,7 @@ pub fn start_voice(bus: Bus, settings: SettingsStore) -> VoiceHandle {
                 }
                 Some(frame) = frames.recv() => runtime.frame(frame),
                 Some(hit) = wakes.recv() => runtime.wake_hit(hit),
-                Some((generation, transcript)) = updates.recv() => runtime.transcript(generation, transcript),
+                Some((generation, transcript)) = updates.recv() => runtime.transcript(generation, transcript).await,
                 Some(level) = levels.recv() => runtime.level(level),
                 Some((generation, result)) = finished.recv() => runtime.finished(generation, result).await,
                 Some(Command::Preview(id, reply)) = command.recv() => {
@@ -167,7 +174,10 @@ pub fn start_voice(bus: Bus, settings: SettingsStore) -> VoiceHandle {
                         runtime.start_speech("Good evening. How may I help you today?".into(), id, Some(reply)).await;
                     }
                 }
-                _ = expiry.tick(), if runtime.follow_until.is_some() => {
+                _ = expiry.tick(), if runtime.follow_until.is_some() || runtime.dictating => {
+                    if runtime.dictating && runtime.dictation_last.elapsed() >= Duration::from_secs(300) {
+                        runtime.end_dictation().await;
+                    }
                     if runtime.follow_until.is_some_and(|until| until <= Instant::now()) {
                         runtime.close_follow_up();
                     }
@@ -363,7 +373,11 @@ impl Runtime {
         let hit = self.barge.update(barge::rms(frame), tts);
         if let Some(s) = self.barge.take_stats() {
             tracing::debug!(
-                floor = s.floor, echo_ratio = s.ratio, mic_peak = s.peak_mic, speech_peak = s.peak_tts, threshold = s.threshold,
+                floor = s.floor,
+                echo_ratio = s.ratio,
+                mic_peak = s.peak_mic,
+                speech_peak = s.peak_tts,
+                threshold = s.threshold,
                 "talk-over check"
             );
         }
@@ -408,7 +422,10 @@ impl Runtime {
     }
 
     async fn listen(&mut self, source: WakeSource) {
-        if !self.settings.voice.enabled || self.listening.is_some() || !can_listen(self.game_mode, source) {
+        if !self.settings.voice.enabled
+            || self.listening.is_some()
+            || !can_listen(self.game_mode, source)
+        {
             return;
         }
         if matches!(self.current, JarvisState::Speaking | JarvisState::Thinking) {
@@ -469,7 +486,7 @@ impl Runtime {
         ));
     }
 
-    fn transcript(&mut self, generation: u64, transcript: Transcript) {
+    async fn transcript(&mut self, generation: u64, transcript: Transcript) {
         if self
             .listening
             .as_ref()
@@ -478,16 +495,88 @@ impl Runtime {
             return;
         }
         match transcript {
+            Transcript::Partial(_) if self.dictating => {}
             Transcript::Partial(text) => self.bus.emit(Event::UserSaid {
                 text,
                 is_final: false,
             }),
+            Transcript::Final(text) if self.dictating => {
+                self.stop_listening();
+                self.dictation_last = Instant::now();
+                match dictation::parse(&text) {
+                    dictation::Utterance::Stop => {
+                        self.end_dictation().await;
+                        return;
+                    }
+                    dictation::Utterance::Scratch => {
+                        if let Some((hwnd, count)) = self.dictation_previous.take() {
+                            if dictation::target().ok() == Some(hwnd) {
+                                for _ in 0..count {
+                                    if jarvis_desktop::input::chord("backspace").is_err() {
+                                        break;
+                                    }
+                                }
+                            } else {
+                                self.warn("Cannot undo dictation in a different window.");
+                            }
+                        }
+                    }
+                    dictation::Utterance::Text(text) => match dictation::target() {
+                        Ok(hwnd) => {
+                            let count = text.chars().count();
+                            match tokio::task::spawn_blocking(move || {
+                                jarvis_desktop::clipboard::paste(hwnd, &text, None)
+                            })
+                            .await
+                            {
+                                Ok(Ok(())) => self.dictation_previous = Some((hwnd, count)),
+                                _ => {
+                                    self.dictation_previous = None;
+                                    self.warn("Could not type into the focused window.");
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            self.dictation_previous = None;
+                            self.warn(&error.to_string());
+                        }
+                    },
+                }
+                if self.dictating {
+                    self.listen(WakeSource::Hotkey).await;
+                }
+            }
+            Transcript::Final(text) if dictation::start(&text) && self.settings.voice.enabled => {
+                self.stop_listening();
+                self.close_follow_up();
+                self.dictating = true;
+                self.dictation_last = Instant::now();
+                self.dictation_previous = None;
+                self.bus.emit(Event::Dictation { active: true });
+                self.chime(&[660.0, 880.0], 0.13).await;
+                self.listen(WakeSource::Hotkey).await;
+            }
             Transcript::Final(text) => {
                 self.stop_listening();
                 self.bus.emit(Event::UserSaid {
                     text,
                     is_final: true,
                 });
+            }
+            Transcript::NoSpeech if self.dictating => {
+                self.stop_listening();
+                self.listen(WakeSource::Hotkey).await;
+            }
+            Transcript::NoSpeech => {
+                self.stop_listening();
+                self.current = JarvisState::Idle;
+                self.bus.emit(Event::State {
+                    state: JarvisState::Idle,
+                });
+            }
+            Transcript::Failed if self.dictating => {
+                self.warn("Dictation stopped because speech recognition is unavailable.");
+                self.end_dictation().await;
             }
             Transcript::Failed => {
                 self.stop_listening();
@@ -499,6 +588,21 @@ impl Runtime {
                 }
             }
         }
+    }
+
+    async fn end_dictation(&mut self) {
+        if !self.dictating {
+            return;
+        }
+        self.dictating = false;
+        self.dictation_previous = None;
+        self.stop_listening();
+        self.bus.emit(Event::Dictation { active: false });
+        self.chime(&[660.0, 440.0], 0.13).await;
+        self.current = JarvisState::Idle;
+        self.bus.emit(Event::State {
+            state: JarvisState::Idle,
+        });
     }
 
     fn cancel_speech(&mut self) {
@@ -665,7 +769,11 @@ impl Runtime {
                     self.cancel_speech();
                 }
             }
-            Event::Speak { text } if self.settings.voice.enabled && !self.settings.voice.muted && !text.trim().is_empty() => {
+            Event::Speak { text }
+                if self.settings.voice.enabled
+                    && !self.settings.voice.muted
+                    && !text.trim().is_empty() =>
+            {
                 if self
                     .speech
                     .as_ref()
@@ -704,7 +812,9 @@ impl Runtime {
             }
             Event::SettingsChanged { settings } => {
                 let previous = std::mem::replace(&mut self.settings, *settings);
-                if self.settings.audio.input_device != previous.audio.input_device || self.settings.audio.input_gain != previous.audio.input_gain {
+                if self.settings.audio.input_device != previous.audio.input_device
+                    || self.settings.audio.input_gain != previous.audio.input_gain
+                {
                     self.mic = None;
                 }
                 if self.settings.wake_word != previous.wake_word
@@ -713,6 +823,7 @@ impl Runtime {
                     self.configure_wake();
                 }
                 if !self.settings.voice.enabled {
+                    self.end_dictation().await;
                     // Text only: drop anything in flight and release the microphone.
                     self.stop_listening();
                     self.close_follow_up();
@@ -761,7 +872,8 @@ mod live_tests {
     async fn microphone_and_spoken_output() {
         let settings = SettingsStore::load(Bus::new()).get();
         let (tx, mut rx) = mpsc::channel(4);
-        let mic = InputStream::open(settings.audio.input_device, settings.audio.input_gain, tx).unwrap();
+        let mic =
+            InputStream::open(settings.audio.input_device, settings.audio.input_gain, tx).unwrap();
         let frame = tokio::time::timeout(Duration::from_secs(4), rx.recv())
             .await
             .unwrap()

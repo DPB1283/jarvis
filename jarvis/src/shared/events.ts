@@ -57,6 +57,7 @@ export interface BusEvents {
   settings_changed: { settings: Settings };
   /** Routines were created/edited/deleted (from Settings or by voice); UIs should re-list. */
   routines_changed: Record<string, never>;
+  dictation: { active: boolean };
   /** Full list of running timers/alarms whenever it changes (empty = none). Renderer animates progress locally. */
   timers: { timers: TimerInfo[] };
   /** A timer/alarm just went off (HUD can flash; voice plays the alarm). */
@@ -89,6 +90,7 @@ export const RENDERER_EVENTS = [
   "settings_changed",
   "followup",
   "routines_changed",
+  "dictation",
   "timers",
   "timer_done",
   "game_mode",
@@ -165,4 +167,6 @@ declare global {
     jarvis: JarvisApi;
   }
 }
+
+
 

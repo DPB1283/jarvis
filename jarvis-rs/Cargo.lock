@@ -2165,8 +2165,10 @@ dependencies = [
  "cpal",
  "futures-util",
  "jarvis-core",
+ "jarvis-desktop",
  "libloading 0.9.1",
  "parking_lot 0.13.0",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -2174,6 +2176,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
+ "windows 0.62.2",
 ]
 
 [[package]]

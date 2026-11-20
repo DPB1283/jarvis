@@ -206,14 +206,54 @@ pub(crate) async fn action(name: &str, v: &Value, bus: &jarvis_core::Bus) -> Res
     }
     Ok(json!("OK"))
 }
-fn area(v: &Value) -> Result<Rect> {
+/// Where the orb sits inside the HUD window. Keep in sync with `jarvis-app/src/windows.rs`.
+fn orb_rect(hud: Rect, orb: &jarvis_core::settings::Orb) -> Rect {
+    use jarvis_core::settings::OrbCorner::{BottomLeft, BottomRight, TopRight};
+    const WIDTH: f64 = 520.0;
+    const HEIGHT: f64 = 640.0;
+    const PADDING: f64 = 14.0;
+    const GLOW: f64 = 10.0; // include the soft glow and timer ring around the globe
+    let scale = f64::from(hud.right - hud.left) / WIDTH;
+    let size = orb.size.clamp(48.0, 180.0);
+    let x = if matches!(orb.corner, TopRight | BottomRight) { WIDTH - PADDING - size } else { PADDING };
+    let y = if matches!(orb.corner, BottomLeft | BottomRight) { HEIGHT - PADDING - size } else { PADDING };
+    let edge = |dip: f64, origin: i32, limit: i32| (origin + (dip * scale).round() as i32).clamp(origin, limit);
+    Rect {
+        left: edge(x - GLOW, hud.left, hud.right),
+        top: edge(y - GLOW, hud.top, hud.bottom),
+        right: edge(x + size + GLOW, hud.left, hud.right),
+        bottom: edge(y + size + GLOW, hud.top, hud.bottom),
+    }
+}
+
+/// Crop `base` to a region given as fractions (0..1) of its width and height.
+fn crop(base: Rect, region: &Value) -> Result<Rect> {
+    let fraction = |key: &str| -> Result<f64> {
+        let value = region[key].as_f64().with_context(|| format!("region.{key} is missing"))?;
+        ensure!((0.0..=1.0).contains(&value), "region.{key} must be between 0 and 1");
+        Ok(value)
+    };
+    let (left, top, right, bottom) = (fraction("left")?, fraction("top")?, fraction("right")?, fraction("bottom")?);
+    ensure!(left < right && top < bottom, "region must have left < right and top < bottom");
+    let (width, height) = (f64::from(base.right - base.left), f64::from(base.bottom - base.top));
+    let out = Rect {
+        left: base.left + (left * width).round() as i32,
+        top: base.top + (top * height).round() as i32,
+        right: base.left + (right * width).round() as i32,
+        bottom: base.top + (bottom * height).round() as i32,
+    };
+    ensure!(out.right - out.left >= 8 && out.bottom - out.top >= 8, "region is too small");
+    Ok(out)
+}
+
+/// What to capture: the chosen screen (default), all screens, the active window, a window found by title or
+/// program name, Jarvis himself (the orb), optionally cropped to a fractional region of that.
+fn area(v: &Value, orb: &jarvis_core::settings::Orb) -> Result<Rect> {
     if let Some(i) = v["screen"].as_u64() {
         select(i)?;
     }
-    match s(v, "area").unwrap_or("screen") {
-        "screen" => Ok(rect(active()?)),
-        "active_window" => window::foreground().bounds.context("No foreground window"),
-        "all_screens" => monitors::list()
+    let everything = || {
+        monitors::list()
             .into_iter()
             .map(rect)
             .reduce(|a, b| Rect {
@@ -222,16 +262,50 @@ fn area(v: &Value) -> Result<Rect> {
                 right: a.right.max(b.right),
                 bottom: a.bottom.max(b.bottom),
             })
-            .context("No monitors"),
-        _ => bail!("Unknown screenshot area"),
+            .context("No monitors")
+    };
+    let named = s(v, "window").map(str::trim).filter(|w| !w.is_empty());
+    let mut base = if let Some(query) = named {
+        window::find(query)
+            .map(|found| found.bounds)
+            .with_context(|| format!("No visible window matching \"{query}\". Take a screenshot to see what is open."))?
+    } else {
+        match s(v, "area").unwrap_or("screen") {
+            "screen" => rect(active()?),
+            "active_window" => window::foreground().bounds.context("No foreground window")?,
+            "all_screens" => everything()?,
+            "jarvis" | "yourself" | "orb" => {
+                ensure!(
+                    orb.show_in_captures,
+                    "I'm hidden from screenshots at the moment. Turn on \"Show Jarvis in screen shares, recordings and screenshots\" in Settings, Display."
+                );
+                let hud = window::find("Jarvis HUD").map(|f| f.bounds).context("I can't find my own window")?;
+                orb_rect(hud, orb)
+            }
+            _ => bail!("Unknown screenshot area"),
+        }
+    };
+    // Stay on the desktop (a window can overhang a screen edge, which would capture black).
+    if let Ok(desktop) = everything() {
+        base = Rect {
+            left: base.left.max(desktop.left),
+            top: base.top.max(desktop.top),
+            right: base.right.min(desktop.right),
+            bottom: base.bottom.min(desktop.bottom),
+        };
+        ensure!(base.right > base.left && base.bottom > base.top, "That area is off screen");
     }
+    if v["region"].is_object() {
+        base = crop(base, &v["region"])?;
+    }
+    Ok(base)
 }
-async fn save(v: &Value, memory: bool) -> Result<ToolOutput> {
+async fn save(v: &Value, memory: bool, orb: &jarvis_core::settings::Orb) -> Result<ToolOutput> {
     tokio::time::sleep(Duration::from_secs_f64(
         v["delay_seconds"].as_f64().unwrap_or(0.).clamp(0., 10.),
     ))
     .await;
-    let r = area(v)?;
+    let r = area(v, orb)?;
     let mut dir = PathBuf::from(std::env::var_os("USERPROFILE").context("Missing user profile")?)
         .join("Pictures/Jarvis Screenshots");
     if memory {
@@ -271,25 +345,29 @@ $b.Save($m,[Drawing.Imaging.ImageFormat]::Jpeg)
     }
 }
 fn capture_schema() -> Value {
-    json!({"type":"object","properties":{"area":{"type":"string","enum":["screen","all_screens","active_window"]},"screen":{"type":"integer","minimum":1},"delay_seconds":{"type":"number","minimum":0,"maximum":10}}})
+    json!({"type":"object","properties":{
+        "area":{"type":"string","enum":["screen","all_screens","active_window","jarvis"],"description":"What to capture. jarvis is a photo of Jarvis himself (his orb)."},
+        "window":{"type":"string","description":"Capture just one window, found by part of its title or program name, e.g. Discord, Chrome or Notepad. Overrides area."},
+        "region":{"type":"object","description":"Crop to part of the captured area, as fractions from 0 to 1 of its width and height (left/top/right/bottom). Use after seeing a screenshot, e.g. the top-right quarter is left 0.5, top 0, right 1, bottom 0.5.","properties":{"left":{"type":"number"},"top":{"type":"number"},"right":{"type":"number"},"bottom":{"type":"number"}},"required":["left","top","right","bottom"]},
+        "screen":{"type":"integer","minimum":1},"delay_seconds":{"type":"number","minimum":0,"maximum":10}}})
 }
 pub fn tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "take_screenshot",
-            description: "Save a full-resolution screenshot to Pictures.",
+            description: "Save a full-resolution screenshot to Pictures. Can capture the whole screen, one window (window), a cropped part of the screen or a window (region), or a photo of Jarvis himself (area jarvis).",
             schema: capture_schema,
             risk: safe,
             summary: |_| "save a screenshot".into(),
-            run: |_, v| Box::pin(async move { save(&v, false).await }),
+            run: |ctx, v| { let orb = ctx.settings.get().orb; Box::pin(async move { save(&v, false, &orb).await }) },
         },
         ToolDef {
             name: "remember_screen",
-            description: "Save a screenshot for visual memory and return the image and its path.",
+            description: "Save a screenshot for visual memory and return the image and its path. Accepts the same area, window and region options as take_screenshot.",
             schema: capture_schema,
             risk: safe,
             summary: |_| "remember the screen".into(),
-            run: |_, v| Box::pin(async move { save(&v, true).await }),
+            run: |ctx, v| { let orb = ctx.settings.get().orb; Box::pin(async move { save(&v, true, &orb).await }) },
         },
         ToolDef {
             name: "look_at_screens",
@@ -360,4 +438,37 @@ pub fn tools() -> Vec<ToolDef> {
             },
         },
     ]
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use jarvis_core::settings::{Orb, OrbCorner};
+
+    fn r(l: i32, t: i32, rt: i32, b: i32) -> Rect {
+        Rect { left: l, top: t, right: rt, bottom: b }
+    }
+
+    #[test]
+    fn orb_is_cropped_out_of_its_hud_window() {
+        let orb = Orb { size: 96.0, corner: OrbCorner::TopRight, ..Orb::default() };
+        let crop = orb_rect(r(0, 0, 520, 640), &orb);
+        assert_eq!((crop.left, crop.top, crop.right, crop.bottom), (400, 4, 516, 120));
+        // A 150% display scales every edge with the window.
+        let scaled = orb_rect(r(1000, 50, 1780, 1010), &orb);
+        assert_eq!((scaled.left, scaled.top, scaled.right, scaled.bottom), (1600, 56, 1774, 230));
+        let bottom_left = orb_rect(r(0, 0, 520, 640), &Orb { corner: OrbCorner::BottomLeft, ..orb });
+        assert_eq!((bottom_left.left, bottom_left.top), (4, 520));
+    }
+
+    #[test]
+    fn region_crops_by_fraction_and_rejects_nonsense() {
+        let base = r(100, 200, 1100, 1200);
+        let q = crop(base, &json!({"left":0.5,"top":0,"right":1,"bottom":0.5})).unwrap();
+        assert_eq!((q.left, q.top, q.right, q.bottom), (600, 200, 1100, 700));
+        assert!(crop(base, &json!({"left":0.6,"top":0,"right":0.5,"bottom":1})).is_err());
+        assert!(crop(base, &json!({"left":0,"top":0,"right":1.5,"bottom":1})).is_err());
+        assert!(crop(base, &json!({"left":0,"top":0,"right":0.001,"bottom":0.001})).is_err());
+        assert!(crop(base, &json!({"left":0,"top":0,"right":1})).is_err());
+    }
 }
