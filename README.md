@@ -1,20 +1,20 @@
 # Jarvis
 
-A voice-controlled desktop assistant for Windows 11. Say "Jarvis" and he listens, answers out loud in a calm,
-dry-witted British voice, and can operate your PC: open apps, look at the screen, click and type with his own
-virtual pointer, search the web, set timers and reminders, remember things, send messages and more.
+A voice-controlled desktop assistant for Windows 11, written in Rust. Say "Jarvis" and he listens, answers out
+loud in a calm, dry-witted British voice, and can operate your PC: open apps, look at the screen, click and type
+with his own virtual pointer, search the web, set timers and reminders, remember things, send messages and more.
 
 He lives on screen as a small floating orb. Left-click it to type, right-click for Settings.
 
 > **Heads up:** Jarvis can control your computer. He asks before risky actions, and there are three
 > switchable safety modes in Settings. Read what he proposes before approving.
 
-## What's in this repo
+## Layout
 
 | Folder | What it is |
 |---|---|
-| [`jarvis-rs/`](jarvis-rs) | **The main app.** Rust + Tauri 2: brain, tools, voice, desktop control. |
-| [`jarvis/`](jarvis) | The shared web UI (HUD orb and Settings, TypeScript) and the original Electron version. The Rust app embeds this UI. |
+| [`jarvis-rs/`](jarvis-rs) | The app: Rust + Tauri 2. Crates for the brain (Claude), tools, voice, and Windows desktop control. |
+| [`jarvis/`](jarvis) | The web UI (floating orb HUD and Settings, TypeScript) that the app embeds, plus a few Node helper tools (calendar, Steam, YouTube). |
 
 ## What you need
 
@@ -28,7 +28,7 @@ He lives on screen as a small floating orb. Left-click it to type, right-click f
 ## Build and run
 
 ```powershell
-# 1. Web UI dependencies
+# 1. UI dependencies
 cd jarvis
 npm install
 
@@ -42,11 +42,12 @@ node scripts/frontend.mjs
 cargo build --release -p jarvis-app
 # -> jarvis-rs/target/release/jarvis-app.exe
 
-# 4. (Optional) make a portable folder + zip with the wake-word runtime and model next to the exe
+# 4. Make a portable folder + zip with the wake-word runtime and model next to the exe
+node scripts/build-utilities.mjs
 powershell -File scripts/package-windows.ps1
 ```
 
-Run the packaged `Jarvis.exe` (the wake-word runtime `bin/libvosk.dll` and `models/` must sit beside it).
+Run the packaged `Jarvis.exe`. The wake-word runtime (`bin/libvosk.dll`) and `models/` must sit beside it.
 
 ## Add your API keys
 
@@ -54,7 +55,8 @@ Start Jarvis, right-click the orb to open **Settings**, and go to the **API keys
 press Save. They are stored encrypted for your Windows user (DPAPI, in `%APPDATA%\Jarvis\data\secrets.bin`),
 are never shown again, and never leave your machine except in requests to the provider they belong to.
 
-You can also use a `.env` file (copy `jarvis/.env.example`); keys found there are imported on first start.
+You can also use a `.env` file (copy `jarvis/.env.example` to `%APPDATA%\Jarvis\.env`); keys found there are
+imported on first start.
 
 ## Using Jarvis
 
