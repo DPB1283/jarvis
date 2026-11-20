@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
+    <title>Jarvis</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <div id="virtual-pointer" class="virtual-pointer" hidden><span class="pointer-arrow">➤</span><span class="pointer-name">Jarvis</span></div>
+    <main id="hud" class="hud" hidden>
+      <button class="orb" id="orb" type="button" aria-label="Talk to Jarvis" data-hit data-state="idle">
+        <canvas aria-hidden="true"></canvas>
+      </button>
+      <span id="full-access" class="full-access" hidden>Full access</span>
+      <section id="captions" class="captions" aria-live="polite" hidden>
+        <p id="user-caption"></p>
+        <p id="assistant-caption"></p>
+      </section>
+      <div id="approvals" class="approvals"></div>
+      <form id="message-form" class="message-form" data-hit hidden>
+        <input id="message" aria-label="Message to Jarvis" placeholder="Type to Jarvis…" autocomplete="off" required>
+        <button type="submit">Send</button>
+        <button id="close-message" class="close-message" type="button" aria-label="Close text box" title="Close text box">×</button>
+      </form>
+      <p id="toast" class="toast" role="status" hidden></p>
+    </main>
+    <main id="settings" class="settings" hidden>
+      <header class="settings-header">
+        <h1>Jarvis settings</h1>
+      </header>
+      <div class="settings-layout">
+        <div id="settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation="vertical"></div>
+        <div class="settings-content">
+          <form id="settings-form"></form>
+          <div id="settings-managed"></div>
+          <div id="settings-actions" class="settings-actions">
+            <div>
+              <p id="settings-status" class="settings-status" role="status"></p>
+              <p id="settings-dirty" class="settings-status" hidden>Unsaved changes</p>
+            </div>
+            <button id="settings-save" class="primary" type="submit" form="settings-form">Save settings</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

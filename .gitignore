@@ -1,0 +1,32 @@
+# ── Secrets and personal data: never commit these ─────────────────────────────
+.env
+.env.*
+!.env.example
+secrets.bin
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+data/
+**/data/
+
+# ── Local tooling / agent collaboration (machine-specific paths, chat history) ──
+.claude/
+.codex/
+.mcp.json
+.vscode/
+collaboration-bridge/
+JARVIS-HANDOFF.md
+jarvis/PLAN.md
+
+# ── Build output and dependencies ──────────────────────────────────────────────
+node_modules/
+out/
+dist/
+target/
+*.log
+*.zip
+
+# ── Large downloaded assets (see README for how to fetch the wake-word model) ──
+models/
+jarvis/models/

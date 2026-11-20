@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+.env
+data/
+*.log
+/models/
+# Local secrets written by `elevenlabs onboard`
+/.env.local

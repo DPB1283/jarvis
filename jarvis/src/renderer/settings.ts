@@ -1,0 +1,556 @@
+import { mountApiKeys } from "./api-keys";
+import { DEFAULT_SETTINGS, type Settings, type SettingsPatch, type TimerInfo, type VoiceOption } from "../shared/settings";
+import { mountMemory } from "./memory";
+import { mountRoutines } from "./routines";
+import { mountChatApps } from "./chat-apps";
+import { mountSettingsTabs, type PreferenceTab, type SettingsTab } from "./settings-tabs";
+
+function option(value: string, label: string) {
+  return new Option(label, value);
+}
+
+export function mountSettings() {
+  const api = window.jarvis;
+  const root = document.querySelector<HTMLElement>("#settings")!;
+  const form = document.querySelector<HTMLFormElement>("#settings-form")!;
+  const status = document.querySelector<HTMLElement>("#settings-status")!;
+  const save = document.querySelector<HTMLButtonElement>("#settings-save")!;
+  const footer = document.querySelector<HTMLElement>("#settings-actions")!;
+  const unsaved = document.querySelector<HTMLElement>("#settings-dirty")!;
+  const report = (message: string, error = false) => {
+    status.textContent = message;
+    status.dataset.error = String(error);
+  };
+  let saved: Settings | undefined;
+  let voices: VoiceOption[] = [];
+  let dirty = false;
+  let preference = true;
+  let activeTab: SettingsTab = "general";
+  const mounted = new Set<SettingsTab>();
+  const sections = {
+    routines: mountRoutines, timers: mountTimers, memory: mountMemory, messaging: mountChatApps, "api-keys": mountApiKeys,
+  };
+  function updateFooter() {
+    unsaved.hidden = !dirty;
+    footer.hidden = !preference && !dirty;
+  }
+  const tabs = mountSettingsTabs(
+    document.querySelector<HTMLElement>("#settings-tabs")!,
+    form,
+    document.querySelector<HTMLElement>("#settings-managed")!,
+    (id, isPreference) => {
+      activeTab = id;
+      preference = isPreference;
+      updateFooter();
+      if (id === "voice" && saved && !mounted.has(id)) {
+        mounted.add(id);
+        void loadVoices();
+        void loadDevices();
+      }
+      if (!isPreference && !mounted.has(id)) {
+        mounted.add(id);
+        sections[id as keyof typeof sections](tabs.panel(id));
+      }
+    },
+  );
+
+  function group(tab: PreferenceTab, title: string) {
+    const section = document.createElement("fieldset");
+    const heading = document.createElement("legend");
+    heading.textContent = title;
+    section.append(heading);
+    tabs.panel(tab).append(section);
+    return section;
+  }
+
+  function field(parent: HTMLElement, title: string, control: HTMLElement) {
+    const label = document.createElement("label");
+    label.className = "setting";
+    const name = document.createElement("span");
+    name.textContent = title;
+    const input = control.matches("input, select") ? control : control.querySelector("input");
+    input?.setAttribute("aria-label", title);
+    label.append(name, control);
+    parent.append(label);
+  }
+
+  function input(parent: HTMLElement, label: string, type = "text") {
+    const control = document.createElement("input");
+    control.type = type;
+    field(parent, label, control);
+    return control;
+  }
+
+  function range(parent: HTMLElement, label: string, min: number, max: number, step: number) {
+    const control = document.createElement("input");
+    control.type = "range";
+    Object.assign(control, { min: String(min), max: String(max), step: String(step) });
+    const entry = document.createElement("span");
+    entry.className = "slider";
+    const output = document.createElement("output");
+    function update() { output.value = control.value; }
+    control.addEventListener("input", update);
+    entry.append(control, output);
+    field(parent, label, entry);
+    return (value?: number) => {
+      if (value !== undefined) {
+        control.value = String(value);
+        update();
+      }
+      return control.valueAsNumber;
+    };
+  }
+
+  function select(parent: HTMLElement, label: string, entries: Array<[string, string]>) {
+    const control = document.createElement("select");
+    control.append(...entries.map(([value, name]) => option(value, name)));
+    field(parent, label, control);
+    return control;
+  }
+
+  const home = group("general", "Home");
+  const city = input(home, "Home city");
+  city.placeholder = "City and region";
+  const units = select(home, "Weather units", [["metric", "Metric (°C)"], ["imperial", "Imperial (°F)"]]);
+  const newsRegion = input(home, "News country code");
+  newsRegion.maxLength = 2;
+  newsRegion.pattern = "[a-zA-Z]{2}";
+  newsRegion.required = true;
+  newsRegion.title = "Two-letter country code, such as US or GB";
+  const newsSources = select(home, "National and world news", [
+    ["neutral", "Wire services only"],
+    ["all", "All outlets"],
+  ]);
+  newsSources.title = "Wire services: Reuters, AP and AFP";
+
+  const personality = group("general", "Personality");
+  const title = input(personality, "Address me as");
+  title.required = true;
+  title.placeholder = "sir";
+  const userName = input(personality, "Your name (used now and then)");
+  userName.placeholder = "optional";
+  userName.autocomplete = "given-name";
+  const ultron = input(personality, "Ultron mode", "checkbox");
+  const sarcasm = range(personality, "Sarcasm", 0, 10, 1);
+  const reply = select(personality, "Reply length", [["brief", "Brief"], ["normal", "Normal"]]);
+
+  const speech = group("voice", "Speech");
+  const voiceOn = input(speech, "Use voice (ElevenLabs). Turn off for text only: no microphone, wake word or spoken replies", "checkbox");
+  const voice = select(speech, "Voice", []);
+  const voiceActions = document.createElement("div");
+  voiceActions.className = "actions";
+  const preview = document.createElement("button");
+  preview.type = "button";
+  preview.textContent = "Preview voice";
+  const load = document.createElement("button");
+  load.type = "button";
+  load.textContent = "Load voices";
+  voiceActions.append(load, preview);
+  speech.append(voiceActions);
+  const speed = range(speech, "Speed", 0.7, 1.2, 0.05);
+  const stability = range(speech, "Stability", 0, 1, 0.05);
+  const volume = range(speech, "Voice volume (%)", 0, 200, 5);
+  const muted = input(speech, "Mute spoken replies", "checkbox");
+
+  const audioGroup = group("voice", "Audio devices");
+  const microphone = select(audioGroup, "Microphone (input)", [["", "Windows default"]]);
+  const micGain = range(audioGroup, "Microphone gain (%)", 0, 500, 10);
+  const speaker = select(audioGroup, "Speaker (output)", [["", "Windows default"]]);
+  const audioActions = document.createElement("div");
+  audioActions.className = "actions";
+  const refreshDevices = document.createElement("button");
+  refreshDevices.type = "button";
+  refreshDevices.textContent = "Refresh devices";
+  const testMic = document.createElement("button");
+  testMic.type = "button";
+  testMic.textContent = "Test microphone";
+  audioActions.append(refreshDevices, testMic);
+  audioGroup.append(audioActions);
+  const micTest = document.createElement("div");
+  micTest.hidden = true;
+  const meterLabel = document.createElement("label");
+  meterLabel.textContent = "Microphone level";
+  const meter = document.createElement("meter");
+  meter.min = 0;
+  meter.max = 1;
+  meter.value = 0;
+  meter.setAttribute("aria-label", "Microphone level");
+  const micStatus = document.createElement("p");
+  micStatus.setAttribute("role", "status");
+  micTest.append(meterLabel, meter, micStatus);
+  audioGroup.append(micTest);
+  let testGeneration = 0;
+  let testStream: MediaStream | undefined;
+  function stopMicTest() {
+    testGeneration++;
+    testStream?.getTracks().forEach(track => track.stop());
+    testStream = undefined;
+    testMic.textContent = "Test microphone";
+    micTest.hidden = true;
+    meter.value = 0;
+  }
+  testMic.addEventListener("click", async () => {
+    if (!micTest.hidden) return stopMicTest();
+    const generation = ++testGeneration;
+    micTest.hidden = false;
+    micStatus.textContent = "Speak into your microphone. The meter should move.";
+    testMic.textContent = "Stop test";
+    try {
+      if ("__TAURI_INTERNALS__" in window) {
+        while (generation === testGeneration) {
+          const level = await api.invoke("audio:test-input", microphone.value, micGain());
+          if (generation === testGeneration) meter.value = level;
+        }
+      } else {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const selected = devices.find(device => device.kind === "audioinput" && device.label === microphone.value);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: selected ? { deviceId: { exact: selected.deviceId } } : true });
+        if (generation !== testGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
+        testStream = stream;
+        const context = new AudioContext();
+        const analyser = context.createAnalyser();
+        context.createMediaStreamSource(stream).connect(analyser);
+        const samples = new Float32Array(analyser.fftSize);
+        while (generation === testGeneration) {
+          analyser.getFloatTimeDomainData(samples);
+          meter.value = Math.min(1, samples.reduce((peak, value) => Math.max(peak, Math.abs(value)), 0) * micGain() / 100);
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        await context.close();
+      }
+    } catch (error) {
+      if (generation !== testGeneration) return;
+      testStream?.getTracks().forEach(track => track.stop());
+      testStream = undefined;
+      testMic.textContent = "Close test";
+      micStatus.textContent = `Could not access the microphone: ${String(error)}`;
+    }
+  });
+  microphone.addEventListener("change", stopMicTest);
+  window.addEventListener("pagehide", stopMicTest, { once: true });
+  let micNames: string[] = [];
+  let speakers: Array<{ id: string; label: string }> = [];
+
+  function showDevices(selectedMic: string, selectedSpeakerId: string, selectedSpeakerLabel: string) {
+    const mics = micNames.map(name => option(name, name));
+    if (selectedMic && !micNames.includes(selectedMic)) mics.unshift(option(selectedMic, `${selectedMic} (not connected)`));
+    microphone.replaceChildren(option("", "Windows default"), ...mics);
+    microphone.value = selectedMic;
+
+    const outs = speakers.map(s => option(s.id, s.label));
+    const known = speakers.find(s => s.id === selectedSpeakerId) ?? speakers.find(s => s.label === selectedSpeakerLabel);
+    if (selectedSpeakerLabel && !known) outs.unshift(option(selectedSpeakerId, `${selectedSpeakerLabel} (not connected)`));
+    speaker.replaceChildren(option("", "Windows default"), ...outs);
+    speaker.value = known?.id ?? selectedSpeakerId;
+  }
+
+  async function loadDevices() {
+    refreshDevices.disabled = true;
+    const prevMic = microphone.value;
+    const prevSpeakerId = speaker.value;
+    const prevSpeakerLabel = speakers.find(s => s.id === prevSpeakerId)?.label ?? saved?.audio?.outputDevice ?? "";
+    try {
+      micNames = await api.invoke("audio:inputs");
+      speakers = "__TAURI_INTERNALS__" in window
+        ? (await api.invoke("audio:outputs")).map(label => ({ id: label, label }))
+        : (await navigator.mediaDevices.enumerateDevices())
+          .filter(d => d.kind === "audiooutput" && d.deviceId !== "default" && d.deviceId !== "communications")
+          .map((d, i) => ({ id: d.deviceId, label: d.label || `Speaker ${i + 1}` }));
+      showDevices(prevMic, prevSpeakerId, prevSpeakerLabel);
+    } catch {
+      report("Could not list audio devices.", true);
+    } finally {
+      refreshDevices.disabled = false;
+    }
+  }
+  refreshDevices.addEventListener("click", () => void loadDevices());
+  navigator.mediaDevices?.addEventListener("devicechange", () => void loadDevices());
+
+  const display = group("display", "Display");
+  const captions = input(display, "Show captions", "checkbox");
+  const position = select(display, "Caption position", [["below_orb", "By the orb"], ["bottom_center", "Bottom center"]]);
+  const captionSize = range(display, "Caption size (px)", 10, 28, 1);
+  const corner = select(display, "Orb corner", [
+    ["top_right", "Top right"], ["top_left", "Top left"],
+    ["bottom_right", "Bottom right"], ["bottom_left", "Bottom left"],
+  ]);
+  const showInCaptures = input(display, "Show Jarvis in screen shares, recordings and screenshots", "checkbox");
+  const orbSize = range(display, "Orb size (px)", 48, 180, 1);
+  const opacity = range(display, "Orb opacity", 0.2, 1, 0.05);
+
+  const system = group("controls", "Controls");
+  const safety = select(system, "Approval mode", [
+    ["ask_all", "Ask every time"], ["ask_unsafe", "Ask before risky actions"], ["full_access", "Full access"],
+  ]);
+  const wake = input(system, "Enable “Jarvis” wake word", "checkbox");
+  const sensitivity = range(system, "Wake word sensitivity", 0, 1, 0.05);
+  const followUp = range(system, "Keep listening after a reply (seconds, 0 = off)", 0, 180, 5);
+  const endOfSpeech = range(system, "Wait after I stop talking (seconds)", 0.4, 3, 0.1);
+  const interruptBySpeaking = input(system, "Cut Jarvis off when I start talking over him", "checkbox");
+  const talk = input(system, "Talk hotkey");
+  const settingsKey = input(system, "Settings hotkey");
+  const startup = input(system, "Launch at startup", "checkbox");
+
+  const gaming = group("controls", "Gaming and PC health");
+  const gameMode = select(gaming, "Game mode", [
+    ["auto", "Auto-detect fullscreen games"], ["on", "Always on"], ["off", "Off"],
+  ]);
+  const health = input(gaming, "Warn me about PC health", "checkbox");
+  const clipApp = select(gaming, "Clip app", [
+    ["auto", "Auto-detect"], ["medal", "Medal"], ["nvidia", "NVIDIA"], ["xbox", "Xbox Game Bar"],
+  ]);
+  const clipHotkey = input(gaming, "Clip hotkey");
+  clipHotkey.placeholder = "Default";
+
+  const calendar = group("general", "Calendar");
+  const calendarUrl = input(calendar, "Google Calendar secret iCal URL", "password");
+  calendarUrl.autocomplete = "off";
+  const calendarHelp = document.createElement("p");
+  calendarHelp.className = "settings-help";
+  calendarHelp.id = "calendar-help";
+  calendarHelp.textContent = "In Google Calendar, select a calendar in Settings. Under Integrate calendar, copy the Secret address in iCal format.";
+  calendarUrl.setAttribute("aria-describedby", calendarHelp.id);
+  calendar.append(calendarHelp);
+
+  function showVoices(selected: string) {
+    const options = voices.map(item => option(item.voiceId, item.description ? `${item.name} · ${item.description}` : item.name));
+    if (selected && !voices.some(item => item.voiceId === selected)) {
+      options.unshift(option(selected, `Configured voice (${selected})`));
+    }
+    voice.replaceChildren(option("", "Default ElevenLabs voice"), ...options);
+    voice.value = selected;
+  }
+
+  function render(value: Settings) {
+    saved = value;
+    const location = value.location ?? DEFAULT_SETTINGS.location;
+    city.value = location.city;
+    units.value = location.units;
+    newsRegion.value = location.newsRegion;
+    newsSources.value = location.newsSources ?? "neutral";
+    ultron.checked = value.ultronMode;
+    title.value = value.userTitle;
+    userName.value = value.userName ?? "";
+    sarcasm(value.personality.sarcasm);
+    reply.value = value.personality.replyLength;
+    showVoices(value.voice.voiceId);
+    speed(value.voice.speed);
+    stability(value.voice.stability);
+    volume(value.voice.volume ?? 100);
+    muted.checked = value.voice.muted;
+    voiceOn.checked = value.voice.enabled !== false;
+    micGain(value.audio?.inputGain ?? 100);
+    showDevices(value.audio?.inputDevice ?? "", value.audio?.outputDeviceId ?? "", value.audio?.outputDevice ?? "");
+    captions.checked = value.captions.enabled;
+    position.value = value.captions.position;
+    captionSize(value.captions.size);
+    corner.value = value.orb.corner;
+    showInCaptures.checked = value.orb.showInCaptures ?? true;
+    orbSize(value.orb.size);
+    opacity(value.orb.opacity);
+    safety.value = value.safetyMode;
+    wake.checked = value.wakeWord.enabled;
+    sensitivity(value.wakeWord.sensitivity);
+    followUp(value.conversation?.followUpSeconds ?? 60);
+    endOfSpeech(value.conversation?.endOfSpeechSeconds ?? 1.2);
+    interruptBySpeaking.checked = value.conversation?.interruptBySpeaking !== false;
+    talk.value = value.hotkeys.talk;
+    settingsKey.value = value.hotkeys.settings;
+    startup.checked = value.launchAtStartup;
+    gameMode.value = value.gameMode?.mode ?? DEFAULT_SETTINGS.gameMode.mode;
+    health.checked = value.health?.warnings ?? DEFAULT_SETTINGS.health.warnings;
+    clipApp.value = value.clips?.app ?? DEFAULT_SETTINGS.clips.app;
+    clipHotkey.value = value.clips?.hotkey ?? "";
+    calendarUrl.value = value.calendar?.icsUrl ?? "";
+  }
+
+  function changedFields<T extends object>(baseline: T, values: T): Partial<T> {
+    const patch: Partial<T> = {};
+    for (const key of Object.keys(values) as Array<keyof T>) {
+      if (baseline[key] !== values[key]) patch[key] = values[key];
+    }
+    return patch;
+  }
+
+  async function loadVoices() {
+    load.disabled = true;
+    try {
+      voices = await api.invoke("voices:list");
+      showVoices(voice.value);
+      report(voices.length ? "" : "No ElevenLabs voices are available.");
+    } catch {
+      report("Could not load ElevenLabs voices.", true);
+    } finally {
+      load.disabled = false;
+    }
+  }
+
+  load.addEventListener("click", () => void loadVoices());
+  preview.addEventListener("click", async () => {
+    if (!voice.value) {
+      report("Pick a voice from the list first.", true);
+      return;
+    }
+    preview.disabled = true;
+    report("");
+    try {
+      await api.invoke("voice:preview", voice.value);
+    } catch {
+      report("Could not preview this voice.", true);
+    } finally {
+      preview.disabled = false;
+    }
+  });
+  form.addEventListener("input", () => {
+    if (!dirty) {
+      dirty = true;
+      report("");
+      updateFooter();
+    }
+  });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!saved || save.disabled) return;
+    const userTitle = title.value.trim();
+    if (!userTitle) {
+      report("Enter the name Jarvis should use.", true);
+      title.focus();
+      return;
+    }
+    const patch: SettingsPatch = {
+      ...changedFields(
+        { ultronMode: saved.ultronMode, userTitle: saved.userTitle, userName: saved.userName ?? "", safetyMode: saved.safetyMode, launchAtStartup: saved.launchAtStartup },
+        { ultronMode: ultron.checked, userTitle, userName: userName.value.trim(), safetyMode: safety.value as Settings["safetyMode"], launchAtStartup: startup.checked },
+      ),
+      location: changedFields(saved.location ?? DEFAULT_SETTINGS.location, {
+        city: city.value.trim(),
+        units: units.value === "imperial" ? "imperial" : "metric",
+        newsRegion: newsRegion.value.toUpperCase(),
+        newsSources: newsSources.value === "all" ? "all" : "neutral",
+      }),
+      captions: changedFields(saved.captions, { enabled: captions.checked, position: position.value as Settings["captions"]["position"], size: captionSize() }),
+      voice: changedFields(saved.voice, { voiceId: voice.value, speed: speed(), stability: stability(), volume: volume(), muted: muted.checked, enabled: voiceOn.checked }),
+      audio: changedFields(saved.audio ?? { inputDevice: "", inputGain: 100, outputDevice: "", outputDeviceId: "" }, {
+        inputDevice: microphone.value,
+        inputGain: micGain(),
+        outputDeviceId: speaker.value,
+        outputDevice: speaker.value
+          ? speakers.find(s => s.id === speaker.value)?.label ?? saved.audio?.outputDevice ?? ""
+          : "",
+      }),
+      personality: changedFields(saved.personality, { sarcasm: sarcasm(), replyLength: reply.value as Settings["personality"]["replyLength"] }),
+      wakeWord: changedFields(saved.wakeWord, { enabled: wake.checked, sensitivity: sensitivity() }),
+      conversation: changedFields(saved.conversation ?? { followUpSeconds: 60, endOfSpeechSeconds: 1.2 }, {
+        followUpSeconds: followUp(),
+        endOfSpeechSeconds: Math.round(endOfSpeech() * 10) / 10,
+        interruptBySpeaking: interruptBySpeaking.checked,
+      }),
+      hotkeys: changedFields(saved.hotkeys, { talk: talk.value.trim(), settings: settingsKey.value.trim() }),
+      orb: changedFields(saved.orb, { corner: corner.value as Settings["orb"]["corner"], position: saved.orb.position, size: orbSize(), opacity: opacity(), showInCaptures: showInCaptures.checked }),
+      gameMode: changedFields(saved.gameMode ?? DEFAULT_SETTINGS.gameMode, { mode: gameMode.value as Settings["gameMode"]["mode"] }),
+      health: changedFields(saved.health ?? DEFAULT_SETTINGS.health, { warnings: health.checked }),
+      clips: changedFields(saved.clips ?? DEFAULT_SETTINGS.clips, { app: clipApp.value as Settings["clips"]["app"], hotkey: clipHotkey.value.trim() }),
+      calendar: changedFields(saved.calendar ?? DEFAULT_SETTINGS.calendar, { icsUrl: calendarUrl.value.trim() }),
+    };
+    save.disabled = true;
+    for (const section of form.querySelectorAll("fieldset")) section.disabled = true;
+    try {
+      render(await api.invoke("settings:update", patch));
+      dirty = false;
+      report("Settings saved.");
+      updateFooter();
+    } catch {
+      report("Could not save settings. Check the values and try again.", true);
+    } finally {
+      for (const section of form.querySelectorAll("fieldset")) section.disabled = false;
+      save.disabled = false;
+    }
+  });
+  const unsubscribe = api.on(event => {
+    if (event.type === "settings_changed" && !dirty) render(event.settings);
+  });
+  window.addEventListener("pagehide", unsubscribe, { once: true });
+  save.disabled = true;
+  void api.invoke("settings:get").then(value => {
+    if (!saved) render(value);
+    save.disabled = false;
+    if (activeTab === "voice" && !mounted.has("voice")) {
+      mounted.add("voice");
+      void loadVoices();
+      void loadDevices();
+    }
+  }).catch(() => report("Could not load settings.", true));
+  root.hidden = false;
+}
+
+function mountTimers(root: HTMLElement) {
+  const api = window.jarvis;
+  const heading = document.createElement("h2");
+  heading.textContent = "Running timers";
+  const list = document.createElement("div");
+  list.className = "routine-list";
+  const status = document.createElement("p");
+  status.className = "settings-status";
+  status.dataset.error = "true";
+  status.role = "status";
+  root.append(heading, status, list);
+  let revision = 0;
+  const pending = new Set<string>();
+  const date = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "medium" });
+
+  function render(timers: TimerInfo[]) {
+    const rows = [...timers].sort((a, b) => a.endsAt - b.endsAt).map(timer => {
+      const row = document.createElement("article");
+      const info = document.createElement("div");
+      const name = document.createElement("h3");
+      name.textContent = timer.label;
+      const ends = document.createElement("p");
+      ends.textContent = `${timer.kind === "alarm" ? "Alarm" : "Timer"} · ${date.format(timer.endsAt)}`;
+      info.append(name, ends);
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.disabled = pending.has(timer.id);
+      cancel.setAttribute("aria-label", `Cancel ${timer.label}`);
+      cancel.addEventListener("click", async () => {
+        if (pending.has(timer.id)) return;
+        pending.add(timer.id);
+        cancel.disabled = true;
+        status.textContent = "";
+        try {
+          await api.invoke("timers:cancel", timer.id);
+        } catch {
+          status.textContent = "Could not cancel the timer.";
+        } finally {
+          pending.delete(timer.id);
+          cancel.disabled = false;
+          void reload();
+        }
+      });
+      row.append(info, cancel);
+      return row;
+    });
+    const empty = document.createElement("p");
+    empty.textContent = "No timers or alarms running.";
+    list.replaceChildren(...(rows.length ? rows : [empty]));
+  }
+
+  async function reload() {
+    const request = ++revision;
+    try {
+      const items = await api.invoke("timers:list");
+      if (request === revision) render(items);
+    } catch {
+      if (request === revision) status.textContent = "Could not load timers.";
+    }
+  }
+  const unsubscribe = api.on(event => {
+    if (event.type === "timers") {
+      revision++;
+      render(event.timers);
+    }
+  });
+  window.addEventListener("pagehide", unsubscribe, { once: true });
+  void reload();
+}
+

@@ -1,0 +1,38 @@
+{
+  "name": "jarvis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice-controlled desktop assistant for Windows",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "node scripts/electron-vite.mjs dev",
+    "build": "node scripts/electron-vite.mjs build",
+    "start": "node scripts/electron-vite.mjs preview",
+    "cli": "tsx src/main/cli.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0",
+    "@elevenlabs/elevenlabs-js": "^2.79.0",
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "@picovoice/pvrecorder-node": "^1.2.9",
+    "@tauri-apps/api": "^2.12.5",
+    "dotenv": "^18.0.10",
+    "koffi": "^2.16.4",
+    "node-ical": "^0.27.6",
+    "vosk-koffi": "^1.1.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^45.4.1",
+    "electron-vite": "^6.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.0",
+    "vite": "^8.3.8"
+  },
+  "allowScripts": {
+    "koffi@2.16.4": true,
+    "vosk-koffi@1.1.1": true
+  }
+}

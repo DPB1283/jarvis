@@ -1,0 +1,298 @@
+[
+  {
+    "id": "discord",
+    "kind": "people",
+    "name": "Discord",
+    "aliases": [
+      "discord",
+      "dc"
+    ],
+    "processNames": [
+      "Discord"
+    ],
+    "launch": "Discord",
+    "launchWaitMs": 2500,
+    "searchKeys": [
+      "Escape",
+      "ctrl+k"
+    ],
+    "searchWaitMs": 900,
+    "pickKeys": [
+      "Return"
+    ],
+    "verify": "screenshot",
+    "sendKeys": [
+      "Return"
+    ],
+    "notes": "Quick switcher matches friends, DMs, channels and servers."
+  },
+  {
+    "id": "discord-canary",
+    "kind": "people",
+    "name": "Discord Canary",
+    "aliases": [
+      "discord canary",
+      "canary"
+    ],
+    "processNames": [
+      "DiscordCanary"
+    ],
+    "launch": "Discord Canary",
+    "launchWaitMs": 2500,
+    "searchKeys": [
+      "Escape",
+      "ctrl+k"
+    ],
+    "searchWaitMs": 900,
+    "pickKeys": [
+      "Return"
+    ],
+    "verify": "screenshot",
+    "sendKeys": [
+      "Return"
+    ]
+  },
+  {
+    "id": "slack",
+    "kind": "people",
+    "name": "Slack",
+    "aliases": [
+      "slack"
+    ],
+    "processNames": [
+      "slack"
+    ],
+    "launch": "Slack",
+    "launchWaitMs": 3000,
+    "searchKeys": [
+      "Escape",
+      "ctrl+k"
+    ],
+    "searchWaitMs": 1000,
+    "pickKeys": [
+      "Return"
+    ],
+    "verify": "screenshot",
+    "sendKeys": [
+      "Return"
+    ],
+    "notes": "Ctrl+K jumps to a person or channel. Customize Send keys if Enter is set to insert a newline."
+  },
+  {
+    "id": "chatgpt",
+    "kind": "assistant",
+    "name": "ChatGPT",
+    "aliases": [
+      "chatgpt",
+      "chat gpt",
+      "gpt",
+      "openai"
+    ],
+    "processNames": [
+      "ChatGPT Classic"
+    ],
+    "launch": "ChatGPT Classic",
+    "launchWaitMs": 2500,
+    "searchKeys": [],
+    "pickKeys": [],
+    "verify": "screenshot",
+    "sendKeys": [],
+    "notes": "The Start menu entry named ChatGPT opens Codex on this PC. Use ChatGPT Classic and locate its composer visually."
+  },
+  {
+    "id": "signal",
+    "kind": "people",
+    "name": "Signal",
+    "aliases": [
+      "signal desktop"
+    ],
+    "processNames": [
+      "Signal"
+    ],
+    "launch": "Signal",
+    "searchKeys": [
+      "ctrl+n"
+    ],
+    "pickKeys": [
+      "Return"
+    ],
+    "focusMessageKeys": [
+      "ctrl+shift+t"
+    ],
+    "sendKeys": [
+      "Return"
+    ],
+    "verify": "screenshot",
+    "notes": "Use a verified conversation and the compact composer. The expanded composer uses Ctrl+Enter."
+  },
+  {
+    "id": "phone-link",
+    "kind": "people",
+    "name": "Phone Link",
+    "aliases": [
+      "sms",
+      "texts",
+      "text message"
+    ],
+    "processNames": [
+      "PhoneExperienceHost"
+    ],
+    "launch": "Phone Link",
+    "searchKeys": [
+      "ctrl+n"
+    ],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Ctrl+N opens a new message. Select the intended contact and composer visually."
+  },
+  {
+    "id": "steam-chat",
+    "kind": "people",
+    "name": "Steam Chat",
+    "aliases": [
+      "steam",
+      "steam friends"
+    ],
+    "processNames": [
+      "steam"
+    ],
+    "launch": "Steam",
+    "searchKeys": [],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Open Friends & Chat and select the recipient visually."
+  },
+  {
+    "id": "whatsapp-web",
+    "kind": "people",
+    "name": "WhatsApp Web",
+    "launch": "https://web.whatsapp.com/",
+    "aliases": [
+      "whatsapp"
+    ],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [
+      "ctrl+alt+n"
+    ],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Ctrl+Alt+N opens a new chat. Check the recipient and composer visually."
+  },
+  {
+    "id": "messenger",
+    "kind": "people",
+    "name": "Messenger",
+    "launch": "https://www.messenger.com/",
+    "aliases": [
+      "facebook messenger"
+    ],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Find the recipient and open the message composer visually."
+  },
+  {
+    "id": "instagram-dms",
+    "kind": "people",
+    "name": "Instagram DMs",
+    "launch": "https://www.instagram.com/direct/inbox/",
+    "aliases": [
+      "instagram",
+      "instagram direct"
+    ],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Open the requested direct-message thread visually."
+  },
+  {
+    "id": "gmail",
+    "kind": "people",
+    "name": "Gmail",
+    "launch": "https://mail.google.com/mail/",
+    "aliases": [],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [
+      "c"
+    ],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "C opens Compose when Gmail shortcuts are enabled. Verify the To, Subject and body fields separately. Gmail sends with Ctrl+Enter."
+  },
+  {
+    "id": "chatgpt-web",
+    "kind": "assistant",
+    "name": "ChatGPT Web",
+    "launch": "https://chatgpt.com/",
+    "aliases": [
+      "chatgpt.com"
+    ],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Use the page's New chat and composer controls visually."
+  },
+  {
+    "id": "claude-web",
+    "kind": "assistant",
+    "name": "Claude Web",
+    "launch": "https://claude.ai/new",
+    "aliases": [
+      "claude",
+      "claude.ai"
+    ],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Open a new chat and focus the composer visually."
+  },
+  {
+    "id": "gemini-web",
+    "kind": "assistant",
+    "name": "Gemini Web",
+    "launch": "https://gemini.google.com/app",
+    "aliases": [
+      "gemini",
+      "gemini.google.com"
+    ],
+    "processNames": [
+      "chrome",
+      "msedge"
+    ],
+    "searchKeys": [],
+    "pickKeys": [],
+    "sendKeys": [],
+    "verify": "screenshot",
+    "notes": "Open a new chat and focus the composer visually."
+  }
+]

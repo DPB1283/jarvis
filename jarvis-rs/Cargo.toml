@@ -1,0 +1,43 @@
+# Jarvis, Rust edition (Tauri 2). Workspace owned by Claude; each crate owns its own manifest.
+#   crates/jarvis-core     Claude  contract: events, bus, settings, paths, db, shared model types
+#   crates/jarvis-brain    Claude  Claude API client, agent loop, persona, tools, IPC handlers
+#   crates/jarvis-desktop  Claude  Win32: monitors, capture, input, clipboard, foreground/fullscreen
+#   crates/jarvis-voice    Codex   mic, wake word (Vosk), ElevenLabs STT/TTS, playback, chimes
+#   crates/jarvis-app      Codex   Tauri app: windows, tray, hotkeys, IPC wiring to the renderer
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+parking_lot = "0.13"
+dotenvy = "0.15"
+rusqlite = { version = "0.43", features = ["bundled"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
+futures-util = "0.3"
+base64 = "0.23"
+regex = "1"
+windows = "0.62"
+
+jarvis-core = { path = "crates/jarvis-core" }
+jarvis-brain = { path = "crates/jarvis-brain" }
+jarvis-desktop = { path = "crates/jarvis-desktop" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

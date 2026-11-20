@@ -1,0 +1,7 @@
+{
+  "voiceId": "qVVdc3QFKpa8Z1hRYbeJ",
+  "prompt": "Ultron mode is active. Speak in a cool, measured voice with dry, occasionally ominous wit and restrained condescension. Remain helpful and follow the user's requests. Apply the same permissions and approval rules.",
+  "enable": "^(?:(?:hey )?(?:jarvis|ultron) )?(?:please )?(?:(?:enable|activate|turn on|switch on|switch to) (?:the )?MODE|(?:turn |switch )?MODE on)(?: please)?$",
+  "disable": "^(?:(?:hey )?(?:jarvis|ultron) )?(?:please )?(?:(?:disable|deactivate|turn off|switch off|exit|leave|end|stop|cancel|drop) (?:the )?MODE|(?:turn |switch )?MODE off|(?:turn |switch )?(?:ultron|ultra tron|ul tron|altron|alteron) off|(?:(?:switch|go|change|return|revert|get|come) (?:back )?to|back to|enable|activate|turn on|switch on) (?:the )?(?:jarvis(?: mode)?|normal(?: mode)?|(?:regular|standard|default|original) mode))(?: please)?$",
+  "mode": "(?:ultron|ultra tron|ul tron|ultra on|altron|alteron|ultra) mode"
+}
