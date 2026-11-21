@@ -14,6 +14,10 @@ export const settingsTabs = [
 export type SettingsTab = (typeof settingsTabs)[number]["id"];
 export type PreferenceTab = Extract<(typeof settingsTabs)[number], { preference: true }>["id"];
 
+export function settingsTabFromHash(hash: string): SettingsTab {
+  return settingsTabs.find(tab => hash === `#settings/${tab.id}`)?.id ?? "general";
+}
+
 export function mountSettingsTabs(
   tablist: HTMLElement,
   form: HTMLFormElement,
@@ -38,6 +42,11 @@ export function mountSettingsTabs(
     onSelect(id, settingsTabs.find(tab => tab.id === id)!.preference);
   }
 
+  function select(id: SettingsTab, focus = false) {
+    history.replaceState(history.state, "", `#settings/${id}`);
+    activate(id, focus);
+  }
+
   settingsTabs.forEach((tab, index) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -45,7 +54,7 @@ export function mountSettingsTabs(
     button.textContent = tab.title;
     button.setAttribute("role", "tab");
     button.setAttribute("aria-controls", `panel-${tab.id}`);
-    button.addEventListener("click", () => activate(tab.id));
+    button.addEventListener("click", () => select(tab.id));
     button.addEventListener("keydown", event => {
       const last = settingsTabs.length - 1;
       let target: number;
@@ -57,7 +66,7 @@ export function mountSettingsTabs(
         default: return;
       }
       event.preventDefault();
-      activate(settingsTabs[target].id, true);
+      select(settingsTabs[target].id, true);
     });
     const panel = document.createElement("section");
     panel.className = tab.preference ? "settings-fields" : "settings-managed-panel";

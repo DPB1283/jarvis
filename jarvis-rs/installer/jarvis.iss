@@ -40,6 +40,7 @@ RestartApplications=no
 [Tasks]
 Name: "startup"; Description: "Start Jarvis when I sign in to Windows"; GroupDescription: "Startup:"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "browserext"; Description: "Set up the browser extension when Jarvis starts (gives him his own tab group in Edge or Chrome)"; GroupDescription: "Browser:"
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -53,10 +54,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing Microsoft Edge WebView2 (needed to show Jarvis)..."; Check: NeedsWebView2; Flags: waituntilterminated
-Filename: "{app}\Jarvis.exe"; Description: "Start Jarvis"; Flags: nowait postinstall; Check: ShouldLaunch
+Filename: "{app}\Jarvis.exe"; Parameters: "{code:LaunchParams}"; Description: "Start Jarvis"; Flags: nowait postinstall; Check: ShouldLaunch
 
 [Messages]
-FinishedLabel=Jarvis is installed.%n%nThe first time he starts, right-click the orb, open Settings, and add your Anthropic key (and an ElevenLabs key for his voice) under API keys. To use him in your browser, load the "browser-extension" folder in the install folder as an unpacked extension.
+FinishedLabel=Jarvis is installed.%n%nThe first time he starts, right-click the orb, open Settings, and add your Anthropic key (and an ElevenLabs key for his voice) under API keys. If you chose to set up the browser extension, Settings opens on the Browser tab and walks you through it (you can do it later from Settings, Browser).
 
 [Code]
 var
@@ -76,6 +77,14 @@ end;
 function ShouldLaunch: Boolean;
 begin
   Result := (not WizardSilent) or HasParam('/LAUNCH');
+end;
+
+// Open Settings on the browser-extension walkthrough after a normal install when the user ticked it. Never after a
+// silent update (the app's updater), which would pop it up again every time.
+function LaunchParams(Param: String): String;
+begin
+  Result := '';
+  if (not WizardSilent) and WizardIsTaskSelected('browserext') then Result := '--browser-setup';
 end;
 
 // The WebView2 runtime ships with Windows 11 and recent Windows 10, and is shared with Edge.

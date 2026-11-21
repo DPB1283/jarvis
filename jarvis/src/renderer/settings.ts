@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, LANGUAGES, type Language, type Settings, type Setting
 import { mountMemory } from "./memory";
 import { mountRoutines } from "./routines";
 import { mountChatApps } from "./chat-apps";
-import { mountSettingsTabs, type PreferenceTab, type SettingsTab } from "./settings-tabs";
+import { mountSettingsTabs, settingsTabFromHash, type PreferenceTab, type SettingsTab } from "./settings-tabs";
 
 function option(value: string, label: string) {
   return new Option(label, value);
@@ -688,11 +688,20 @@ export function mountSettings() {
     if (event.type === "update_available" && native) void getUpdate(false);
   });
   window.addEventListener("pagehide", unsubscribe, { once: true });
+  let onboarding: ReturnType<typeof offerOnboarding> | undefined;
+  function applySettingsRoute() {
+    const tab = settingsTabFromHash(location.hash);
+    tabs.activate(tab);
+    if (tab === "browser") onboarding?.showBrowserStep();
+  }
+  applySettingsRoute();
+  window.addEventListener("hashchange", applySettingsRoute);
+  window.addEventListener("pagehide", () => window.removeEventListener("hashchange", applySettingsRoute), { once: true });
   save.disabled = true;
   void api.invoke("settings:get").then(value => {
     if (!saved) render(value);
-    if ("__TAURI_INTERNALS__" in window && value.onboarded === false) {
-      offerOnboarding(root, value, () => tabs.activate("api-keys", true));
+    if ("__TAURI_INTERNALS__" in window && value.onboarded === false && location.hash === "#settings") {
+      onboarding = offerOnboarding(root, value, () => tabs.activate("api-keys", true));
     }
     save.disabled = false;
     if (activeTab === "voice" && !mounted.has("voice")) {

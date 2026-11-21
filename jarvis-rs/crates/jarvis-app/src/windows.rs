@@ -13,10 +13,33 @@ const HEIGHT: f64 = 640.0;
 const PADDING: f64 = 14.0;
 
 pub fn open_settings(app: &AppHandle) -> Result<()> {
+    open_settings_at(app, None)
+}
+
+/// Open Settings on one tab ("browser", "api-keys", ...): index.html#settings/<tab>.
+/// Every open runs on the main thread, one after another: two requests at once (the first-run tour and the
+/// installer's browser setup) would otherwise both find no window and open two.
+pub fn open_settings_at(app: &AppHandle, tab: Option<&str>) -> Result<()> {
+    let handle = app.clone();
+    let tab = tab.map(str::to_owned);
+    app.run_on_main_thread(move || {
+        if let Err(error) = open_settings_now(&handle, tab.as_deref()) {
+            tracing::warn!(%error, "Could not open the settings window");
+        }
+    })?;
+    Ok(())
+}
+
+fn open_settings_now(app: &AppHandle, tab: Option<&str>) -> Result<()> {
+    let tab = tab.filter(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    let hash = tab.map(|t| format!("#settings/{t}")).unwrap_or_else(|| "#settings".into());
     let window = if let Some(window) = app.get_webview_window(SETTINGS) {
+        if tab.is_some() {
+            window.eval(format!("location.hash = {hash:?}"))?;
+        }
         window
     } else {
-        WebviewWindowBuilder::new(app, SETTINGS, WebviewUrl::App("index.html#settings".into()))
+        WebviewWindowBuilder::new(app, SETTINGS, WebviewUrl::App(format!("index.html{hash}").into()))
             .title("Jarvis settings")
             .inner_size(800.0, 800.0)
             .min_inner_size(520.0, 480.0)

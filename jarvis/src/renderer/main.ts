@@ -17,7 +17,7 @@ if (location.hash === "#pointer") {
   window.jarvis.on(event => { if (event.type === "settings_changed") update(event.settings.ultronMode); });
 } else if (location.hash === "#player") {
   mountPlayer(); // hidden audio window, no preload / window.jarvis here
-} else if (location.hash === "#settings") {
+} else if (location.hash === "#settings" || location.hash.startsWith("#settings/")) {
   mountSettings();
 } else {
   mountHud();

@@ -149,6 +149,11 @@ export interface InvokeApi {
   /** Create the "morning briefing" routine (weather, calendar, traffic, news) at a time on chosen days. */
   "routines:add-briefing": (time: string, days: number[]) => void;
   "browser:status": () => { port: number; pairingCode: string; connected: boolean };
+  /** Settings window (Rust app): the extension folder and which of Edge and Chrome are installed. */
+  "browser:setup-info": () => { folder: string; browsers: ("edge" | "chrome")[] };
+  /** Settings window (Rust app): open that browser's extensions page plus the extension folder (path copied to the
+   *  clipboard for Load unpacked); "folder" opens only the folder. */
+  "browser:setup": (target: "edge" | "chrome" | "folder") => void;
   "settings:get": () => Settings;
   "settings:update": (patch: SettingsPatch) => Settings;
   "memory:list": (filter?: { kind?: MemoryKind; query?: string }) => MemoryItem[];

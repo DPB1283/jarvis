@@ -80,8 +80,11 @@ there are imported on first start.
   first unless you've given him full access.
 - **Photos of part of the screen:** ask for a screenshot of one window ("just my Discord window"), a part of the
   screen, or of Jarvis himself ("take a photo of yourself").
-- **His own browser tab group:** load the `browser-extension` folder in Chrome or Edge (unpacked) and pair it in
-  Settings → Browser; he then works in a collapsed "Jarvis" tab group when you ask him to use the browser.
+- **His own browser tab group:** tick *Set up the browser extension* in the installer, or open Settings → Browser
+  (it's also a step in the first-run tour). Press *Set up in Edge* or *Set up in Chrome*: the extensions page and the
+  extension folder open and the folder path is copied, so you just switch on Developer mode, choose Load unpacked,
+  paste, and enter the pairing code shown in Settings. He then works in a collapsed "Jarvis" tab group when you ask
+  him to use the browser.
 - **Games:** "let's play chess" (or "Connect Four") opens a little page in your browser, served only on your own
   PC, where you play against him: beginner to expert. Ask him how you're doing, or for a hint, and he can see the
   position. The chess engine is built on [chess.js](https://github.com/jhlywa/chess.js) (BSD-2).

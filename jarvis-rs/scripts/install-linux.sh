@@ -105,5 +105,5 @@ EOF
 say "Done"
 echo "Start it from your applications menu, or run:  jarvis"
 echo "Then right-click the orb, open Settings, and add your Anthropic key (and an ElevenLabs key for his voice) under API keys."
-echo "Browser extension: load $PREFIX/browser-extension as an unpacked extension in Chrome or Edge."
+echo "Browser extension: open Jarvis Settings, Browser, and press Set up in Chrome/Edge (folder: $PREFIX/browser-extension)."
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "(Add ~/.local/bin to your PATH to use the 'jarvis' command.)" ;; esac

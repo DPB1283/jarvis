@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod browser_setup;
 mod windows;
 
 use anyhow::{Result, bail};
@@ -61,6 +62,16 @@ fn toggle_mute(app: &AppHandle) {
             text: if muted { "Voice muted." } else { "Voice on." }.into(),
         }),
         Err(error) => tracing::warn!(%error, "Could not toggle mute"),
+    }
+}
+
+/// Passed by the installer's "Set up the browser extension" option.
+const BROWSER_SETUP_ARG: &str = "--browser-setup";
+
+/// Open Settings on the Browser tab, which walks through loading the extension and pairing it.
+fn browser_setup_flow(app: &AppHandle) {
+    if let Err(error) = windows::open_settings_at(app, Some("browser")) {
+        tracing::warn!(%error, "Could not open the browser setup");
     }
 }
 
@@ -326,6 +337,14 @@ async fn invoke(
             }
         }
         "window:open-settings" => windows::open_settings(window.app_handle())?,
+        "browser:setup-info" if window.label() == SETTINGS => {
+            let folder = browser_setup::extension_folder().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+            return Ok(json!({ "folder": folder, "browsers": browser_setup::browsers() }));
+        }
+        "browser:setup" if window.label() == SETTINGS => {
+            let target = arg.as_str().unwrap_or("folder").to_owned();
+            tauri::async_runtime::spawn_blocking(move || browser_setup::open(&target)).await??;
+        }
         "window:set-ignore-mouse" if window.label() == HUD => {
             if state.drag.lock().unwrap().is_none() {
                 window.set_ignore_cursor_events(
@@ -413,7 +432,13 @@ fn main() {
         .init();
     jarvis_core::paths::load_env();
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| talk(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if args.iter().any(|a| a == BROWSER_SETUP_ARG) {
+                browser_setup_flow(app);
+            } else {
+                talk(app);
+            }
+        }))
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![jarvis_invoke, jarvis_send])
@@ -439,6 +464,9 @@ fn main() {
             forward_events(app.handle().clone(), state.clone());
             track_cursor(hud.clone(), state.clone());
             track_game(hud, state);
+            if std::env::args().any(|a| a == BROWSER_SETUP_ARG) {
+                browser_setup_flow(app.handle());
+            }
             let voice_state = app.state::<AppState>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 let voice = jarvis_voice::start_voice(

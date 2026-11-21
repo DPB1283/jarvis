@@ -1,4 +1,5 @@
 import type { Settings } from "../shared/settings";
+import { mountBrowserSetup } from "./browser-settings";
 
 export function offerOnboarding(root: HTMLElement, preferences: Settings, openKeys: () => void) {
   const api = window.jarvis;
@@ -15,11 +16,13 @@ export function offerOnboarding(root: HTMLElement, preferences: Settings, openKe
   const meter = document.createElement("meter");
   meter.setAttribute("aria-label", "Microphone level");
   meter.max = 1;
-  dialog.append(title, detail, meter, feedback, actions);
+  const browser = document.createElement("div");
+  dialog.append(title, detail, browser, meter, feedback, actions);
   root.append(dialog);
   let step = 0;
   let checking = false;
   let generation = 0;
+  let browserSetup: ReturnType<typeof mountBrowserSetup> | undefined;
   function button(label: string, click: () => void, primary = false) {
     const control = document.createElement("button");
     control.type = "button";
@@ -32,6 +35,7 @@ export function offerOnboarding(root: HTMLElement, preferences: Settings, openKe
   function localClose() {
     generation++;
     checking = false;
+    browserSetup?.dispose();
     dialog.close();
     dialog.remove();
     resume.remove();
@@ -72,9 +76,11 @@ export function offerOnboarding(root: HTMLElement, preferences: Settings, openKe
   function render() {
     generation++;
     checking = false;
+    browserSetup?.dispose();
+    browserSetup = undefined;
     actions.replaceChildren();
     feedback.textContent = "";
-    meter.hidden = step !== 2;
+    meter.hidden = step !== 3;
     if (step === 0) {
       title.textContent = "Welcome to Jarvis";
       detail.textContent = "Set up your connection, test your microphone, and see the shortcuts.";
@@ -85,11 +91,16 @@ export function offerOnboarding(root: HTMLElement, preferences: Settings, openKe
       button("Open API keys", () => { dialog.close(); resume.hidden = false; openKeys(); }, true);
       button("Continue with current setup", next);
     } else if (step === 2) {
+      title.textContent = "Browser (optional)";
+      detail.textContent = "Give Jarvis his own collapsed tab group for browser tasks.";
+      browserSetup = mountBrowserSetup(browser, () => dialog.open && step === 2);
+      button("Continue", next, true);
+    } else if (step === 3) {
       title.textContent = "Check your microphone";
       detail.textContent = "Speak while the test runs. If the meter moves, Jarvis is receiving audio.";
       const control = button("Test microphone", () => void test(control));
       button("Continue", next, true);
-    } else if (step === 3) {
+    } else if (step === 4) {
       title.textContent = "Try a voice command";
       detail.textContent = 'Say “Jarvis, what time is it?” You can also type the question using the talk shortcut.';
       button("Continue", next, true);
@@ -107,7 +118,16 @@ export function offerOnboarding(root: HTMLElement, preferences: Settings, openKe
   resume.textContent = "Continue setup";
   const keysPanel = root.querySelector("#panel-api-keys");
   keysPanel?.prepend(resume);
-  resume.addEventListener("click", () => { resume.hidden = true; next(); dialog.showModal(); });
+  resume.addEventListener("click", () => { resume.hidden = true; dialog.showModal(); next(); });
   render();
   dialog.showModal();
+  return {
+    showBrowserStep() {
+      if (!dialog.isConnected) return;
+      if (!dialog.open) dialog.showModal();
+      resume.hidden = true;
+      step = 2;
+      render();
+    },
+  };
 }

@@ -629,3 +629,16 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
   font-size: clamp(9px, 2.3cqw, 15px);
   font-variant-numeric: tabular-nums;
 }
+
+.browser-setup { display: grid; gap: 10px; }
+.browser-setup-steps { margin: 0; padding-left: 23px; line-height: 1.45; }
+.browser-setup-steps li + li { margin-top: 5px; }
+.browser-setup-credentials { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.browser-setup-field { display: grid; gap: 4px; }
+.browser-setup-field:first-child { flex: 0 0 76px; }
+.browser-setup-field:nth-child(2) { flex: 1 1 160px; min-width: 0; }
+.browser-setup-status { margin: 0; }
+.browser-setup-status[data-connected="true"] { color: var(--aqua); }
+.browser-setup .settings-status:empty { display: none; }
+.onboarding { max-height: calc(100dvh - 32px); overflow: auto; }
+.onboarding .browser-setup { margin-block: 8px 18px; }
