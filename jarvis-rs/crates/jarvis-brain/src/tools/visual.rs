@@ -54,6 +54,43 @@ pub(crate) fn timeline_data(input: &Value) -> Result<Value> {
     Ok(json!({"events": events}))
 }
 
+/// When the open orb display closes by itself (None when nothing is showing). A click on the HUD's close button
+/// isn't reported back, so a quick "expand" right after that is simply ignored by the HUD.
+static OPEN_UNTIL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// The HUD closed the display itself (its x, Escape, a click outside, or its timer).
+pub fn mark_closed() {
+    if let Ok(mut until) = OPEN_UNTIL.lock() {
+        *until = None;
+    }
+}
+
+pub(crate) fn visual_open() -> bool {
+    OPEN_UNTIL.lock().map(|until| until.is_some_and(|t| t > std::time::Instant::now())).unwrap_or(false)
+}
+
+/// A spoken or typed "expand" / "shrink" aimed at the orb display, answered without asking the AI.
+/// Some(true) = make it bigger, Some(false) = back to normal size.
+pub(crate) fn size_command(text: &str) -> Option<bool> {
+    let words = crate::dismiss::normalise(text);
+    let words = words
+        .trim_start_matches("hey ")
+        .trim_start_matches("jarvis ")
+        .trim_start_matches("ultron ")
+        .trim_start_matches("please ")
+        .trim_end_matches(" please");
+    let thing = r"(?: (?:it|that|this|the (?:orb|ball|globe|display|picture|graph|web|timeline|image|visual|hologram)))?";
+    let bigger = regex::Regex::new(&format!(r"^(?:expand{thing}(?: more| further| even more)?|(?:make|get){thing} (?:even )?(?:bigger|larger|huge)|(?:even )?bigger|enlarge{thing}|zoom in|blow{thing} up|full ?screen{thing}|go full ?screen)$")).ok()?;
+    let smaller = regex::Regex::new(&format!(r"^(?:shrink{thing}(?: back)?|(?:make|get){thing} (?:smaller|normal(?: size)?)|smaller|zoom out|collapse{thing}|normal size|(?:go )?back to normal size)$")).ok()?;
+    if bigger.is_match(words) {
+        Some(true)
+    } else if smaller.is_match(words) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// Block fetching from this machine or the local network (the model must not be able to probe them).
 fn public_url(url: &str) -> bool {
     (url.starts_with("https://") || url.starts_with("http://")) && !crate::provider::is_local(url)
@@ -115,7 +152,8 @@ pub fn tools() -> Vec<ToolDef> {
                 "center":{"type":"string","description":"web: the id of the main node"},
                 "events":{"type":"array","maxItems":24,"items":{"type":"object","required":["when","title"],"properties":{"when":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}},
                 "image_url":{"type":"string"},"image_path":{"type":"string"},"caption":{"type":"string"},
-                "seconds":{"type":"integer","minimum":5,"maximum":300,"description":"How long to keep it open (default 60)"}}}),
+                "seconds":{"type":"integer","minimum":5,"maximum":300,"description":"How long to keep it open (default 60)"},
+                "large":{"type":"boolean","description":"Open it at the big size straight away (when the user asks for it big)"}}}),
             risk: safe,
             summary: |v| format!("show a {} in the orb", s(v, "kind").unwrap_or("visual")),
             run: |ctx, v| {
@@ -129,7 +167,13 @@ pub fn tools() -> Vec<ToolDef> {
                     };
                     let title = clip(s(&v, "title").unwrap_or("Jarvis"), 60);
                     let ttl = v["seconds"].as_u64().map(|n| n.clamp(5, 300) as u32).or(Some(60));
+                    if let Ok(mut until) = OPEN_UNTIL.lock() {
+                        *until = Some(std::time::Instant::now() + std::time::Duration::from_secs(u64::from(ttl.unwrap_or(60))));
+                    }
                     ctx.bus.emit(Event::Visual { kind: kind.clone(), title, data, ttl_secs: ttl });
+                    if v["large"].as_bool() == Some(true) {
+                        ctx.bus.emit(Event::VisualSize { large: true });
+                    }
                     Ok(format!("The {kind} is showing in the orb.").into())
                 })
             },
@@ -142,8 +186,28 @@ pub fn tools() -> Vec<ToolDef> {
             summary: |_| "close the orb display".into(),
             run: |ctx, _| {
                 Box::pin(async move {
+                    if let Ok(mut until) = OPEN_UNTIL.lock() {
+                        *until = None;
+                    }
                     ctx.bus.emit(Event::VisualClose {});
                     Ok("Closed.".into())
+                })
+            },
+        },
+        ToolDef {
+            name: "resize_visual",
+            description: "Make the open orb display (the 3D web, timeline or image) bigger, or back to its normal size. 'Expand it', 'make it bigger', 'full screen' → large true; 'shrink it', 'smaller' → large false.",
+            schema: || json!({"type":"object","required":["large"],"properties":{"large":{"type":"boolean"}}}),
+            risk: safe,
+            summary: |v| if v["large"].as_bool() == Some(false) { "shrink the orb display".into() } else { "expand the orb display".into() },
+            run: |ctx, v| {
+                Box::pin(async move {
+                    if !visual_open() {
+                        return Ok("Nothing is showing in the orb right now. Use show_visual first (it takes large: true).".into());
+                    }
+                    let large = v["large"].as_bool().unwrap_or(true);
+                    ctx.bus.emit(Event::VisualSize { large });
+                    Ok(if large { "Expanded." } else { "Back to normal size." }.into())
                 })
             },
         },
@@ -176,6 +240,19 @@ mod tests {
         let data = timeline_data(&json!({"events":[{"when":"1969","title":"Moon landing"},{"when":"","title":"No date"},{"when":"1981","title":"First shuttle","detail":"Columbia"}]})).unwrap();
         assert_eq!(data["events"].as_array().unwrap().len(), 2);
         assert!(timeline_data(&json!({"events":[{"when":"1969","title":"Alone"}]})).is_err());
+    }
+
+    #[test]
+    fn expand_and_shrink_commands() {
+        for phrase in ["Expand", "expand it", "Jarvis, expand the orb.", "make it bigger", "Make it even bigger please", "bigger", "even bigger", "full screen", "Full-screen it", "expand it more", "Ultron, enlarge the hologram", "zoom in", "blow it up"] {
+            assert_eq!(size_command(phrase), Some(true), "{phrase}");
+        }
+        for phrase in ["shrink it", "Shrink it back", "make it smaller", "smaller", "back to normal size", "collapse the globe", "zoom out"] {
+            assert_eq!(size_command(phrase), Some(false), "{phrase}");
+        }
+        for phrase in ["expand on that idea", "make the text bigger in word", "what is bigger, the sun or jupiter", "shrink my photo", "zoom in on google maps"] {
+            assert_eq!(size_command(phrase), None, "{phrase}");
+        }
     }
 
     #[test]

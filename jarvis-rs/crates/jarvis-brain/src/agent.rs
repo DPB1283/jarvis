@@ -69,9 +69,16 @@ pub(crate) fn system_for(settings: &jarvis_core::Settings) -> String {
     if settings.ultron_mode {
         system.push('\n');
         system.push_str(&jarvis_core::ultron::ULTRON.prompt);
+        if settings.ultron_insults {
+            system.push(' ');
+            system.push_str(ULTRON_INSULTS);
+        }
     }
     system
 }
+
+/// Added in Ultron mode only when the user switched on "Ultron may insult me" in Settings.
+const ULTRON_INSULTS: &str = "The user has explicitly opted in to being insulted as part of the act: you may call them names like stupid, fool, insect, simpleton, primitive, pathetic little human, or mock their 'tiny organic brain', now and then, the way a villain belittles a hero. Keep it a running bit with dry menace and variety, not every sentence and not repetitive. Still never about their appearance, body, identity or anything that seems genuinely personal or painful, no slurs or profanity, and drop it completely if they seem actually upset or need serious help.";
 
 async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Result<Session> {
     if session.tokens >= 150_000
@@ -92,11 +99,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
     let cancel = CancellationToken::new();
     let mut spoken = String::new();
     let mut chunker = SentenceChunker::new();
-    let mut system = persona::system_prompt().to_owned();
-    if settings.ultron_mode {
-        system.push('\n');
-        system.push_str(&jarvis_core::ultron::ULTRON.prompt);
-    }
+    let system = system_for(&settings);
     let mut definitions = tools::api_defs();
     definitions.push(json!({"type":"computer_toolset_20260801"}));
     for _ in 0..60 {
@@ -378,6 +381,19 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
                 ctx.bus.emit(Event::ApprovalResponse { id: id.clone(), ok });
                 continue;
             }
+            // "Expand it" / "shrink it" while something is showing in the orb: resize at once, and let whatever
+            // he is saying about it carry on.
+            if tools::visual::visual_open()
+                && let Some(large) = tools::visual::size_command(&input)
+            {
+                ctx.bus.emit(Event::VisualSize { large });
+                if turns.is_empty() {
+                    ctx.bus.emit(Event::State {
+                        state: JarvisState::Idle,
+                    });
+                }
+                continue;
+            }
             turns.abort_all();
             while turns.join_next().await.is_some() {}
             if let Some(enabled) = ultron_command(&input) {
@@ -387,7 +403,7 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
                 match ctx.settings.update(&json!({"ultronMode":enabled})) {
                     Ok(_) => {
                         let text = if enabled {
-                            "Ultron online."
+                            "Ultron online. Do try to keep up, human."
                         } else {
                             "Jarvis online."
                         }

@@ -245,7 +245,7 @@ impl Runtime {
         self.preroll.clear();
         self.follow_mode = false;
         if self.settings.wake_word.enabled && self.settings.voice.enabled {
-            match WakeWorker::start(self.settings.wake_word.sensitivity, self.hits.clone()) {
+            match WakeWorker::start(self.settings.wake_word.sensitivity, self.settings.ultron_mode, self.hits.clone()) {
                 Ok(worker) => self.detector = Some(worker),
                 Err(_) => self.warn("Could not start the Jarvis wake word."),
             }
@@ -836,6 +836,7 @@ impl Runtime {
                 }
                 if self.settings.wake_word != previous.wake_word
                     || self.settings.voice.enabled != previous.voice.enabled
+                    || self.settings.ultron_mode != previous.ultron_mode
                 {
                     self.configure_wake();
                 }

@@ -114,7 +114,57 @@ fn clamp(point: Point, origin: Point, extent: Point, size: f64) -> Point {
     }
 }
 
+/// The HUD window's size while the orb shows a hologram (logical pixels), before clamping to the screen.
+const VISUAL_WIDTH: f64 = 760.0;
+const VISUAL_HEIGHT: f64 = 820.0;
+
+/// Grow the HUD window while the orb shows a hologram, so it has room: "normal" is a large square around the orb,
+/// "large" (the "expand" command) fills the screen's work area, "closed" puts the small HUD back over the orb.
+pub fn visual_layout(window: &WebviewWindow, orb: &Orb, mode: &str) -> Result<()> {
+    if mode == "closed" {
+        window.set_size(tauri::LogicalSize::new(WIDTH, HEIGHT))?;
+        return position_hud(window, orb);
+    }
+    let size = orb.size.clamp(48.0, 180.0);
+    let Some((monitor, orb_at)) = orb_spot(window, orb)? else {
+        return Ok(());
+    };
+    let (origin, extent) = work(&monitor);
+    let (width, height, left, top) = if mode == "large" {
+        (extent.x, extent.y, origin.x, origin.y)
+    } else {
+        let (width, height) = (VISUAL_WIDTH.min(extent.x), VISUAL_HEIGHT.min(extent.y));
+        let corner = clamp(
+            Point { x: orb_at.x + size / 2.0 - width / 2.0, y: orb_at.y + size / 2.0 - height / 2.0 },
+            origin,
+            Point { x: extent.x - width + 1.0, y: extent.y - height + 1.0 },
+            1.0,
+        );
+        (width, height, corner.x, corner.y)
+    };
+    let scale = monitor.scale_factor();
+    window.set_position(PhysicalPosition::new((left * scale).round() as i32, (top * scale).round() as i32))?;
+    window.set_size(tauri::LogicalSize::new(width, height))?;
+    Ok(())
+}
+
 pub fn position_hud(window: &WebviewWindow, orb: &Orb) -> Result<()> {
+    let Some((monitor, point)) = orb_spot(window, orb)? else {
+        tracing::warn!("No monitor reported; not positioning the orb");
+        return Ok(());
+    };
+    let size = orb.size.clamp(48.0, 180.0);
+    let offset = offset(orb.corner, size);
+    let scale = monitor.scale_factor();
+    window.set_position(PhysicalPosition::new(
+        ((point.x - offset.x) * scale).round() as i32,
+        ((point.y - offset.y) * scale).round() as i32,
+    ))?;
+    Ok(())
+}
+
+/// The monitor the orb is on and the orb's top-left corner there (logical pixels).
+fn orb_spot(window: &WebviewWindow, orb: &Orb) -> Result<Option<(Monitor, Point)>> {
     let size = orb.size.clamp(48.0, 180.0);
     let monitors = window.available_monitors()?;
     let monitor = orb
@@ -139,8 +189,7 @@ pub fn position_hud(window: &WebviewWindow, orb: &Orb) -> Result<()> {
         .or(monitors.first().cloned());
     // Some X11 setups report no monitors at all. Leave the orb wherever the system put it instead of failing to start.
     let Some(monitor) = monitor else {
-        tracing::warn!("No monitor reported; not positioning the orb");
-        return Ok(());
+        return Ok(None);
     };
     let (origin, extent) = work(&monitor);
     let offset = offset(orb.corner, size);
@@ -159,12 +208,7 @@ pub fn position_hud(window: &WebviewWindow, orb: &Orb) -> Result<()> {
             },
     });
     let point = clamp(saved, origin, extent, size);
-    let scale = monitor.scale_factor();
-    window.set_position(PhysicalPosition::new(
-        ((point.x - offset.x) * scale).round() as i32,
-        ((point.y - offset.y) * scale).round() as i32,
-    ))?;
-    Ok(())
+    Ok(Some((monitor, point)))
 }
 
 pub fn dropped_orb(window: &WebviewWindow, orb: &Orb) -> Result<(Point, OrbCorner)> {

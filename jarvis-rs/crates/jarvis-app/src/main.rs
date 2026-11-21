@@ -334,6 +334,14 @@ async fn invoke(
                 )?;
             }
         }
+        "window:visual" if window.label() == HUD => {
+            let mode = arg.as_str().filter(|m| matches!(*m, "normal" | "large" | "closed"));
+            let mode = mode.ok_or_else(|| anyhow::anyhow!("Unknown visual layout."))?;
+            if mode == "closed" {
+                jarvis_brain::tools::visual::mark_closed();
+            }
+            windows::visual_layout(window, &state.settings.get().orb, mode)?;
+        }
         "window:drag" if window.label() == HUD => match arg.as_str() {
             Some("start") => *state.drag.lock().unwrap() = Some(Drag::start(window)?),
             Some("end") => {

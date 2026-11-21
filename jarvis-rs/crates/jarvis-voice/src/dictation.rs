@@ -11,8 +11,8 @@ pub enum Utterance {
     Scratch,
     Text(String),
 }
-const FILLERS: [&str; 17] = [
-    "hey jarvis", "jarvis", "hey", "ok", "okay", "please", "can you", "could you", "would you", "will you",
+const FILLERS: &[&str] = &[
+    "hey jarvis", "jarvis", "hey ultron", "ultron", "hey", "ok", "okay", "please", "can you", "could you", "would you", "will you",
     "i want you to", "i want to", "i would like to", "i d like to", "lets", "let s", "go ahead and",
 ];
 

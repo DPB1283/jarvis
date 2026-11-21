@@ -52,7 +52,8 @@ export function mountHud() {
   updateNotice.append(updateText, updateButton);
   activity.after(updateNotice);
   let hasUpdate = false;
-  const visuals = mountVisuals(hud, orb, open => setIgnore(!open));
+  // The Rust app grows the HUD window while a hologram is open (the Electron build has no such channel).
+  const visuals = mountVisuals(hud, orb, open => setIgnore(!open), layout => api.invoke("window:visual", layout).catch(() => {}));
   let ignoring: boolean | undefined;
   let toastTimer: ReturnType<typeof setTimeout>;
   let activityDelay: ReturnType<typeof setTimeout> | undefined;
@@ -244,6 +245,9 @@ export function mountHud() {
         break;
       case "visual_close":
         visuals.close();
+        break;
+      case "visual_size":
+        visuals.resize(event.large);
         break;
       case "update_available":
         hasUpdate = true;

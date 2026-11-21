@@ -85,8 +85,10 @@ there are imported on first start.
 - **Games:** "let's play chess" (or "Connect Four") opens a little page in your browser, served only on your own
   PC, where you play against him: beginner to expert. Ask him how you're doing, or for a hint, and he can see the
   position. The chess engine is built on [chess.js](https://github.com/jhlywa/chess.js) (BSD-2).
-- **Things inside the orb:** ask him to explain how things are connected, show a timeline, or show a picture, and
-  the orb expands: its dots become a web of nodes, a timeline, or the image itself, then it shrinks back.
+- **Holograms inside the orb:** ask him to explain how things are connected, show a timeline, or show a picture, and
+  the orb grows into a see-through 3D sphere of light: a web of nodes floating inside it, a timeline ring around
+  its centre, or the picture projected inside. Drag to spin it (scroll turns the timeline), click a node to bring it
+  to the front, and say "expand" (or press ⤢) to make it fill the screen; "shrink it" puts it back.
 - **Looking back (off by default):** in Settings → Local history you can let him remember what you copied and
   take small screen snapshots (about one every five minutes, kept for a day), so "what was that link I copied?" or
   "what was I looking at at three?" work. Stored only on your PC, wiped when you switch them off.
@@ -99,7 +101,9 @@ there are imported on first start.
   timers, volume, opening apps) using the offline recognizer that also handles the wake word.
 - **Updates:** Jarvis checks GitHub for a newer release and offers to install it (Windows: it downloads the
   installer, checks its checksum, and restarts Jarvis). Turn the check off in Settings → General.
-- **Modes:** the safety mode and personality (including "Ultron mode": say "enable Ultron mode") are in Settings.
+- **Modes:** the safety mode and personality are in Settings. **Ultron mode** (say "enable Ultron mode") turns him
+  red with a different voice and a superior, condescending attitude, and he also answers to "Ultron" as a wake word.
+  Tick *Ultron may insult me* in Settings → Personality if you want him to call you names as part of the act.
 - **Screen shares and recordings (Windows):** by default Jarvis is visible in screenshots, recordings and screen
   shares. Turn that off in Settings → Display. He cannot appear over *exclusive*-fullscreen games, only borderless
   or windowed ones.

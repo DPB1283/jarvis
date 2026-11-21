@@ -193,6 +193,7 @@ export function mountSettings() {
   userName.placeholder = "optional";
   userName.autocomplete = "given-name";
   const ultron = input(personality, "Ultron mode", "checkbox");
+  const ultronInsults = input(personality, "Ultron may insult me (calls you stupid, insect and so on, in character)", "checkbox");
   const sarcasm = range(personality, "Sarcasm", 0, 10, 1);
   const language = select(personality, "Language (he speaks and understands it)", LANGUAGES.map(([code, name]): [string, string] => [code, name]));
   const reply = select(personality, "Reply length", [["brief", "Brief (one short sentence)"], ["middle", "Middle brief (one or two sentences)"], ["normal", "Normal"]]);
@@ -526,6 +527,7 @@ export function mountSettings() {
     newsSources.value = location.newsSources ?? "neutral";
     showMaps.checked = location.showMaps !== false;
     ultron.checked = value.ultronMode;
+    ultronInsults.checked = value.ultronInsults === true;
     language.value = value.language ?? "en";
     title.value = value.userTitle;
     userName.value = value.userName ?? "";
@@ -633,8 +635,8 @@ export function mountSettings() {
         ...(JSON.stringify(currentRules) === JSON.stringify(saved.appRules ?? []) ? {} : { appRules: currentRules }),
       } : {}),
       ...changedFields(
-        { ultronMode: saved.ultronMode, language: saved.language ?? "en", userTitle: saved.userTitle, userName: saved.userName ?? "", safetyMode: saved.safetyMode, launchAtStartup: saved.launchAtStartup },
-        { ultronMode: ultron.checked, language: language.value as Language, userTitle, userName: userName.value.trim(), safetyMode: safety.value as Settings["safetyMode"], launchAtStartup: startup.checked },
+        { ultronMode: saved.ultronMode, ultronInsults: saved.ultronInsults === true, language: saved.language ?? "en", userTitle: saved.userTitle, userName: saved.userName ?? "", safetyMode: saved.safetyMode, launchAtStartup: saved.launchAtStartup },
+        { ultronMode: ultron.checked, ultronInsults: ultronInsults.checked, language: language.value as Language, userTitle, userName: userName.value.trim(), safetyMode: safety.value as Settings["safetyMode"], launchAtStartup: startup.checked },
       ),
       location: changedFields(saved.location ?? DEFAULT_SETTINGS.location, {
         city: city.value.trim(),

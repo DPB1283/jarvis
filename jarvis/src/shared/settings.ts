@@ -17,6 +17,8 @@ export type OrbCorner = "top_right" | "top_left" | "bottom_right" | "bottom_left
 export interface Settings {
   /** How Jarvis usually addresses the user, e.g. "sir", "ma'am", "boss". */
   ultronMode: boolean;
+  /** Ultron may call the user names as part of the act (opt-in). */
+  ultronInsults?: boolean;
   updates?: { check: boolean };
   /** Optional local histories, off by default (Rust app). */
   history?: { clipboard: boolean; screens: boolean };

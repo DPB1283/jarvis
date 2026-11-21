@@ -262,6 +262,8 @@ impl Default for Orb {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub ultron_mode: bool,
+    /// Ultron may call the user names ("stupid", "insect") as part of the act. Off unless the user opts in.
+    pub ultron_insults: bool,
     pub user_title: String,
     pub user_name: String,
     pub captions: Captions,
@@ -386,6 +388,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             ultron_mode: false,
+            ultron_insults: false,
             user_title: "sir".into(),
             user_name: String::new(),
             captions: Captions::default(),

@@ -41,8 +41,8 @@ const WHOLE_PHRASES: &[&str] = &[
     "停", "唔該", "多謝", "冇嘢", "算啦", "算數", "好啦", "拜拜", "晚安", "唔使", "唔好講",
 ];
 
-const LEADING_FILLERS: &[&str] = &["oh", "ah", "um", "umm", "uh", "uhh", "er", "actually", "well", "okay", "ok", "alright", "right", "jarvis", "hey", "so"];
-const TRAILING_FILLERS: &[&str] = &["jarvis", "gracias", "por favor", "merci", "s'il te plait", "s'il vous plait", "danke", "bitte", "then", "sorry", "please", "thanks", "thank you", "mate", "buddy", "bud", "man", "for now", "now"];
+const LEADING_FILLERS: &[&str] = &["oh", "ah", "um", "umm", "uh", "uhh", "er", "actually", "well", "okay", "ok", "alright", "right", "jarvis", "ultron", "hey", "so"];
+const TRAILING_FILLERS: &[&str] = &["jarvis", "ultron", "gracias", "por favor", "merci", "s'il te plait", "s'il vous plait", "danke", "bitte", "then", "sorry", "please", "thanks", "thank you", "mate", "buddy", "bud", "man", "for now", "now"];
 
 pub fn normalise(text: &str) -> String {
     let lower = text.to_lowercase().replace(['\u{2019}', '\u{2018}', '`'], "'");
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn same_answers_as_the_typescript_tests() {
         for s in [
-            "Never mind.", "nevermind", "30. Never mind.", "Oh, never mind.", "Actually, forget it.", "Jarvis, never mind", "nothing",
+            "Never mind.", "nevermind", "30. Never mind.", "Oh, never mind.", "Actually, forget it.", "Jarvis, never mind", "Ultron, never mind.", "Never mind, Ultron", "nothing",
             "Never mind, sorry.", "scratch that", "Open Spotify. Actually never mind.", "Can you uh... cancel that", "NVM",
             "Forget about it, Jarvis.", "Thanks Jarvis, that's all.", "That's it for now.", "I'm good, thanks.", "Not now.",
             "Sorry, I wasn't talking to you.", "Stop.", "Shh.", "Thanks!", "Cheers mate", "Okay.", "Goodnight Jarvis.", "Don't worry about it.",

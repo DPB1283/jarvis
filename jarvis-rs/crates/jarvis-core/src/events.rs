@@ -97,9 +97,17 @@ pub enum Event {
     Map { title: String, caption: String, image: String },
     /// brain → renderer: something to draw INSIDE the orb (it expands to show it). `kind` is "web" (a network of
     /// nodes), "timeline" or "image"; `data` has the shape for that kind (see shared/events.ts).
-    Visual { kind: String, title: String, data: serde_json::Value, ttl_secs: Option<u32> },
+    Visual {
+        kind: String,
+        title: String,
+        data: serde_json::Value,
+        #[serde(rename = "ttlSeconds")]
+        ttl_secs: Option<u32>,
+    },
     /// brain → renderer: close whatever the orb is showing and shrink back.
     VisualClose {},
+    /// brain → renderer: make the open orb display bigger (large) or back to its normal size.
+    VisualSize { large: bool },
     /// brain → renderer: a newer version is available.
     UpdateAvailable { version: String, notes: String, url: String },
     VirtualPointer { x: i32, y: i32 },
@@ -136,6 +144,7 @@ impl Event {
             Event::Map { .. } => "map",
             Event::Visual { .. } => "visual",
             Event::VisualClose {} => "visual_close",
+            Event::VisualSize { .. } => "visual_size",
             Event::UpdateAvailable { .. } => "update_available",
             Event::VirtualPointer { .. } => "virtual_pointer",
             Event::Timers { .. } => "timers",
@@ -168,6 +177,9 @@ mod tests {
         let e = Event::Interrupt { reason: InterruptReason::BargeIn };
         assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"type":"interrupt","reason":"barge_in"}"#);
         assert_eq!(serde_json::to_string(&Event::SpeakEnd {}).unwrap(), r#"{"type":"speak_end"}"#);
+        let e = Event::Visual { kind: "web".into(), title: "T".into(), data: serde_json::json!({}), ttl_secs: Some(60) };
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"type":"visual","kind":"web","title":"T","data":{},"ttlSeconds":60}"#);
+        assert_eq!(serde_json::to_string(&Event::VisualSize { large: true }).unwrap(), r#"{"type":"visual_size","large":true}"#);
         let back: Event = serde_json::from_str(r#"{"type":"approval_response","id":"x","ok":true}"#).unwrap();
         assert!(matches!(back, Event::ApprovalResponse { ok: true, .. }));
         let back: Event = serde_json::from_str(r#"{"type":"wake","source":"hotkey"}"#).unwrap();

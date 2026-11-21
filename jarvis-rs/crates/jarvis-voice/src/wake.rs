@@ -74,8 +74,29 @@ struct Word {
     conf: f64,
 }
 
+/// What the small offline model hears when someone says "Ultron" (it isn't in its vocabulary), measured with
+/// synthesized speech. Phrases that are common in everyday talk ("I'll try on") are left out on purpose.
+const ULTRON_SOUNDALIKES: &[&str] = &[
+    "ultron", "ultra on", "ultra", "all tron", "l tron", "i'll tron", "all drawn", "i'll drawn", "all draw on",
+    "i'll draw on", "alter on", "ol tron", "old tron", "hey all drawn",
+];
+
+/// True when the recognized words contain the wake name: always "Jarvis", plus "Ultron" while Ultron mode is on.
+pub(crate) fn heard_wake(text: &str, ultron: bool) -> bool {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.contains(&"jarvis") {
+        return true;
+    }
+    if !ultron {
+        return false;
+    }
+    let padded = format!(" {} ", words.join(" "));
+    ULTRON_SOUNDALIKES.iter().any(|phrase| padded.contains(&format!(" {phrase} ")))
+}
+
 struct Detector {
     api: Vosk,
+    ultron: bool,
     model: Ptr,
     recognizer: Ptr,
     streak: usize,
@@ -86,6 +107,10 @@ struct Detector {
 
 impl Detector {
     fn open(sensitivity: f64) -> Result<Self> {
+        Self::open_with(sensitivity, false)
+    }
+
+    fn open_with(sensitivity: f64, ultron: bool) -> Result<Self> {
         let home = jarvis_core::paths::jarvis_home();
         let dll = std::env::var_os("JARVIS_VOSK_DLL")
             .map(std::path::PathBuf::from)
@@ -135,6 +160,7 @@ impl Detector {
         };
         let mut detector = Self {
             api,
+            ultron,
             model,
             recognizer: std::ptr::null_mut(),
             streak: 0,
@@ -196,13 +222,14 @@ impl Detector {
             let wake = json
                 .result
                 .iter()
-                .any(|word| word.word == "jarvis" && word.conf >= 0.6);
+                .any(|word| word.word == "jarvis" && word.conf >= 0.6)
+                || (self.ultron && heard_wake(&json.text, true));
             let speech = follow_up && !json.text.trim().is_empty() && self.loud >= 2;
             self.loud = 0;
             return Ok(wake || speech);
         }
         let partial = json.partial.trim();
-        self.streak = if partial.split_whitespace().any(|word| word == "jarvis") {
+        self.streak = if heard_wake(partial, self.ultron) {
             self.streak + 1
         } else {
             0
@@ -243,7 +270,7 @@ fn next_generation(follow_up: bool) -> u64 {
 }
 
 impl WakeWorker {
-    pub fn start(sensitivity: f64, hits: mpsc::Sender<Result<WakeHit>>) -> Result<Self> {
+    pub fn start(sensitivity: f64, ultron: bool, hits: mpsc::Sender<Result<WakeHit>>) -> Result<Self> {
         let (frames, mut input) = mpsc::channel::<(u64, Vec<i16>)>(12);
         let generation = Arc::new(AtomicU64::new(next_generation(false)));
         let active = generation.clone();
@@ -251,7 +278,7 @@ impl WakeWorker {
             .name("jarvis-wake-word".into())
             .spawn(move || {
                 let result = (|| -> Result<()> {
-                    let mut detector = Detector::open(sensitivity)?;
+                    let mut detector = Detector::open_with(sensitivity, ultron)?;
                     let mut current = None;
                     while let Some((key, frame)) = input.blocking_recv() {
                         if active.load(Ordering::Acquire) != key {
@@ -397,6 +424,51 @@ pub fn recognize(
     Ok(None)
 }
 
+#[cfg(test)]
+mod ultron_tests {
+    use super::heard_wake;
+
+    #[test]
+    fn ultron_wakes_only_in_ultron_mode() {
+        for heard in ["jarvis what time is it", "hey jarvis"] {
+            assert!(heard_wake(heard, false) && heard_wake(heard, true), "{heard}");
+        }
+        // What the offline model actually produced for synthesized "Ultron ..." phrases.
+        for heard in ["all drawn what time is it", "l tron", "ultra on what time is it", "hey all tron", "i'll tron open notepad", "hey ultra on", "i'll draw on what type"] {
+            assert!(heard_wake(heard, true), "{heard}");
+            assert!(!heard_wake(heard, false), "{heard} must not wake him outside Ultron mode");
+        }
+        for everyday in ["i'll try on the jacket", "it was all done", "turn the volume down", "control", "hello there", "all right"] {
+            assert!(!heard_wake(everyday, true), "{everyday}");
+        }
+    }
+}
+
+/// Feeds recorded clips (16 kHz mono PCM, *.raw in WAKE_CLIPS_DIR) through the real detector. Files named u* say
+/// "Ultron ...", j* say "Jarvis ...".
+#[cfg(all(test, windows))]
+#[test]
+#[ignore = "requires the local Vosk runtime and model plus recorded clips"]
+fn ultron_clips_wake_the_detector() {
+    let dir = std::env::var_os("WAKE_CLIPS_DIR").unwrap();
+    let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "raw")).collect();
+    files.sort();
+    assert!(!files.is_empty());
+    let wakes = |file: &std::path::Path, ultron: bool| {
+        let pcm = std::fs::read(file).unwrap();
+        let mut samples: Vec<i16> = pcm.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+        samples.resize(samples.len() + 32_000, 0);
+        let mut detector = Detector::open_with(0.6, ultron).unwrap();
+        samples.chunks(512).any(|chunk| detector.frame(chunk, false).unwrap())
+    };
+    for file in &files {
+        let name = file.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(wakes(file, true), "{name} should wake him in Ultron mode");
+        if name.starts_with('u') {
+            assert!(!wakes(file, false), "{name} should not wake him outside Ultron mode");
+        }
+    }
+}
 #[cfg(all(test, windows))]
 #[test]
 #[ignore = "requires the installed Vosk model and a synthetic PCM phrase"]

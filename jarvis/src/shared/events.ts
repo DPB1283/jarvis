@@ -71,6 +71,8 @@ export interface BusEvents {
    */
   visual: { kind: "web" | "timeline" | "image"; title: string; data: unknown; ttlSeconds?: number | null };
   visual_close: Record<string, never>;
+  /** Make the open orb display bigger (large) or back to normal. */
+  visual_size: { large: boolean };
   /** A newer release exists. */
   update_available: { version: string; notes: string; url: string };
   /** Full list of running timers/alarms whenever it changes (empty = none). Renderer animates progress locally. */
@@ -110,6 +112,7 @@ export const RENDERER_EVENTS = [
   "map",
   "visual",
   "visual_close",
+  "visual_size",
   "update_available",
   "timers",
   "timer_done",
@@ -181,6 +184,8 @@ export interface InvokeApi {
   "window:set-ignore-mouse": (ignore: boolean) => void;
   /** Orb drag: main moves the HUD window with the cursor between "start" and "end", then saves the spot. */
   "window:drag": (phase: "start" | "end") => void;
+  /** Rust app: grow the HUD window while the orb shows a hologram ("large" fills the screen), shrink it after. */
+  "window:visual": (mode: "normal" | "large" | "closed") => void;
 }
 
 export type InvokeChannel = keyof InvokeApi;

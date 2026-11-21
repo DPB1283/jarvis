@@ -4,7 +4,7 @@
 //! project's release URL, and it is only run if its SHA-256 matches the digest GitHub reports for the asset.
 
 use crate::Ctx;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use jarvis_core::Event;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -124,7 +124,7 @@ pub async fn install() -> Result<()> {
             .context("Could not start the installer")?;
     }
     #[cfg(not(windows))]
-    bail!("Automatic install is only available on Windows");
+    anyhow::bail!("Automatic install is only available on Windows");
     #[cfg(windows)]
     Ok(())
 }
