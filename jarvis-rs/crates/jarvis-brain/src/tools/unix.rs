@@ -7,7 +7,7 @@ use super::{ToolDef, ToolOutput, b, n, s, safe, system::resolve_path, unsafe_};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use jarvis_core::events::Risk;
 use serde_json::json;
-use std::{process::Stdio, time::Duration};
+use std::{collections::HashSet, os::unix::fs::PermissionsExt, path::{Path, PathBuf}, process::Stdio, time::Duration};
 use tokio::process::Command;
 
 /// Run a program (no shell) and return its trimmed stdout.
@@ -24,8 +24,8 @@ async fn run(program: &str, args: &[&str]) -> Result<String> {
 }
 
 /// Start a program and let it run on its own (an app the user asked to open).
-fn spawn_detached(program: &str, args: &[&str]) -> Result<()> {
-    Command::new(program)
+fn spawn_detached(program: &str, args: &[&str]) -> Result<Option<u32>> {
+    let child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -33,51 +33,246 @@ fn spawn_detached(program: &str, args: &[&str]) -> Result<()> {
         .process_group(0)
         .spawn()
         .with_context(|| format!("could not start `{program}`"))?;
-    Ok(())
+    let id = child.id();
+    tokio::spawn(async move { let mut child = child; let _ = child.wait().await; });
+    Ok(id)
+}
+
+fn executable(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+fn path_dirs() -> impl Iterator<Item = PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect::<Vec<_>>().into_iter()
 }
 
 async fn have(program: &str) -> bool {
-    Command::new("sh").args(["-c", &format!("command -v {program} >/dev/null 2>&1")]).status().await.is_ok_and(|s| s.success())
+    if program.contains('/') {
+        return executable(Path::new(program));
+    }
+    path_dirs().any(|dir| executable(&dir.join(program)))
 }
 
-/// Desktop entries: (file stem, display name) from the standard application folders.
-fn desktop_entries() -> Vec<(String, String)> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let mut dirs = vec!["/usr/share/applications".to_owned(), "/usr/local/share/applications".to_owned(), "/var/lib/flatpak/exports/share/applications".to_owned()];
-    dirs.push(format!("{home}/.local/share/applications"));
-    dirs.push(format!("{home}/.local/share/flatpak/exports/share/applications"));
+#[derive(Debug)]
+struct DesktopEntry {
+    id: String,
+    name: String,
+    exec: Vec<String>,
+    file: PathBuf,
+    source: &'static str,
+}
+
+fn desktop_exec(exec: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut arg = String::new();
+    let mut quoted = false;
+    let mut chars = exec.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => quoted = !quoted,
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    arg.push(next);
+                }
+            }
+            '%' => match chars.next() {
+                Some('%') => arg.push('%'),
+                Some('f' | 'F' | 'u' | 'U' | 'i' | 'c' | 'k' | 'd' | 'D' | 'n' | 'N' | 'v' | 'm') => {}
+                _ => return Vec::new(),
+            },
+            ch if ch.is_whitespace() && !quoted => {
+                if !arg.is_empty() {
+                    args.push(std::mem::take(&mut arg));
+                }
+            }
+            ch => arg.push(ch),
+        }
+    }
+    if quoted {
+        return Vec::new();
+    }
+    if !arg.is_empty() {
+        args.push(arg);
+    }
+    args
+}
+
+fn parse_entry(text: &str, file: PathBuf, source: &'static str) -> Option<DesktopEntry> {
+    let mut desktop = false;
+    let mut name = "";
+    let mut command = "";
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            if desktop { break; }
+            desktop = line == "[Desktop Entry]";
+        } else if desktop {
+            let Some((key, value)) = line.split_once('=') else { continue };
+            let value = value.trim();
+            match key.trim() {
+                "Hidden" | "NoDisplay" if value.eq_ignore_ascii_case("true") => return None,
+                "Type" if value != "Application" => return None,
+                "Name" => name = value,
+                "Exec" => command = value,
+                _ => {}
+            }
+        }
+    }
+    let id = file.file_stem()?.to_str()?.to_owned();
+    let exec = desktop_exec(command);
+    (!name.is_empty() && !exec.is_empty()).then(|| DesktopEntry { id, name: name.to_owned(), exec, file, source })
+}
+
+fn desktop_entries() -> Vec<DesktopEntry> {
+    let user = std::env::var_os("HOME").map(PathBuf::from);
+    let mut directories = Vec::new();
+    if let Some(data_home) = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(||user.as_ref().map(|p|p.join(".local/share"))) {
+        directories.push((data_home.join("applications"), "desktop menu"));
+    }
+    if let Some(user) = user {
+        directories.push((user.join(".local/share/flatpak/exports/share/applications"), "Flatpak"));
+    }
+    directories.extend([
+        (PathBuf::from("/var/lib/flatpak/exports/share/applications"), "Flatpak"),
+        (PathBuf::from("/var/lib/snapd/desktop/applications"), "Snap"),
+    ]);
+    let data_dirs = std::env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    directories.extend(std::env::split_paths(&data_dirs).map(|dir| (dir.join("applications"), "desktop menu")));
+    let mut seen = HashSet::new();
     let mut found = Vec::new();
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+    for (dir, source) in directories {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+            if path.extension().and_then(|e| e.to_str()) != Some("desktop") || !seen.insert(entry.file_name()) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            if text.lines().any(|l| l.trim() == "NoDisplay=true") {
-                continue;
-            }
-            let name = text.lines().find_map(|l| l.strip_prefix("Name=")).unwrap_or_default().to_owned();
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                found.push((stem.to_owned(), name));
+            if let Ok(text) = std::fs::read_to_string(&path)
+                && let Some(app) = parse_entry(&text, path, source)
+            {
+                found.push(app);
             }
         }
     }
     found
 }
 
-/// The desktop entry whose name or file name best matches `query` (exact first, then contains).
-fn best_entry(query: &str, entries: &[(String, String)]) -> Option<String> {
-    let q = query.trim().to_lowercase();
-    let exact = entries.iter().find(|(stem, name)| stem.to_lowercase() == q || name.to_lowercase() == q);
-    let partial = || {
-        entries
-            .iter()
-            .filter(|(stem, name)| stem.to_lowercase().contains(&q) || name.to_lowercase().contains(&q))
-            .min_by_key(|(_, name)| name.len())
-    };
-    exact.or_else(partial).map(|(stem, _)| stem.clone())
+fn matches_entry(entry: &DesktopEntry, query: &str) -> bool {
+    [&entry.id, &entry.name].iter().any(|value| value.to_lowercase().contains(query))
+        || entry.exec.first().is_some_and(|program| program.to_lowercase().contains(query))
+}
+
+fn best_entry<'a>(query: &str, entries: &'a [DesktopEntry]) -> Option<&'a DesktopEntry> {
+    let q = query.trim().strip_suffix(".desktop").unwrap_or(query.trim()).to_lowercase();
+    entries.iter().filter(|item| matches_entry(item, &q))
+        .min_by_key(|item| ((item.id.to_lowercase() != q && item.name.to_lowercase() != q), item.name.len()))
+}
+
+async fn flatpak_apps() -> Vec<(String, String)> {
+    let Ok(rows) = run("flatpak", &["list", "--app", "--columns=application,name"]).await else { return Vec::new() };
+    rows.lines().filter_map(|line| {
+        let (id, name) = line.split_once('\t')?;
+        let id = id.trim();
+        (id.contains('.') && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)))
+            .then(|| (id.to_owned(), name.trim().to_owned()))
+    }).collect()
+}
+
+async fn find_apps(query: Option<&str>, limit: usize) -> String {
+    let query = query.unwrap_or_default().trim().to_lowercase();
+    let mut apps = Vec::<(String, String, &'static str)>::new();
+    for entry in desktop_entries() {
+        if matches_entry(&entry, &query) {
+            apps.push((entry.name, entry.id, entry.source));
+        }
+    }
+    for (id, name) in flatpak_apps().await {
+        if id.to_lowercase().contains(&query) || name.to_lowercase().contains(&query) {
+            apps.push((name, id, "Flatpak"));
+        }
+    }
+    if !query.is_empty() {
+        for dir in path_dirs() {
+            let Ok(entries) = std::fs::read_dir(dir) else { continue };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.to_lowercase().contains(&query) && executable(&entry.path()) {
+                    apps.push((name.clone(), name, "PATH"));
+                }
+            }
+        }
+    }
+    apps.sort_by_cached_key(|(name, _, source)| (*source == "PATH", name.to_lowercase()));
+    let mut names = HashSet::new();
+    let mut targets = HashSet::new();
+    let mut matches: Vec<_> = apps.into_iter().filter(|(name, target, _)| {
+        let (name, target) = (name.to_lowercase(), target.to_lowercase());
+        if names.contains(&name) || targets.contains(&target) { return false; }
+        names.insert(name);
+        targets.insert(target);
+        true
+    }).collect();
+    matches.sort_by_cached_key(|(name, _, _)| name.to_lowercase());
+    if matches.is_empty() {
+        return "No matching applications found.".into();
+    }
+    matches.into_iter().take(limit).map(|(name, target, source)|format!("{name} | {target} | {source}")).collect::<Vec<_>>().join("\n")
+}
+
+async fn x11_windows() -> HashSet<String> {
+    let output = run("xdotool", &["search", "--onlyvisible", "--maxdepth", "2", "--class", ".*"]).await.unwrap_or_default();
+    output.lines().filter(|id| id.bytes().all(|b| b.is_ascii_digit()) && !id.is_empty()).map(str::to_owned).collect()
+}
+
+fn descendant_of(mut pid: u32, root: u32) -> bool {
+    for _ in 0..32 {
+        if pid == root { return true; }
+        if pid <= 1 { break; }
+        let Some(parent) = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()
+            .and_then(|stat| stat.rsplit_once(") ")?.1.split_whitespace().nth(1)?.parse().ok()) else { break };
+        pid = parent;
+    }
+    false
+}
+
+async fn launch(program: &str, args: &[&str], identity: &str, background: bool) -> Result<&'static str> {
+    let x11 = std::env::var_os("DISPLAY").is_some()
+        && std::env::var("XDG_SESSION_TYPE").as_deref() != Ok("wayland")
+        && have("xdotool").await;
+    if !background || !x11 {
+        spawn_detached(program, args)?;
+        return Ok(if background { " Background launch is unavailable in this session." } else { "" });
+    }
+    let foreground = run("xdotool", &["getactivewindow"]).await.ok();
+    let before = x11_windows().await;
+    let child = spawn_detached(program, args)?;
+    let program_hint = identity.to_lowercase();
+    tokio::spawn(async move {
+        let mut handled = before;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        while tokio::time::Instant::now() < deadline {
+            for id in x11_windows().await.difference(&handled).cloned().collect::<Vec<_>>() {
+                let pid = run("xdotool", &["getwindowpid", &id]).await.ok().and_then(|pid|pid.parse::<u32>().ok());
+                let ours = child.zip(pid).is_some_and(|(root, pid)| descendant_of(pid, root));
+                let app_class = x11_class(&id).await;
+                if !ours && (program_hint.is_empty() || !app_class.contains(&program_hint)) {
+                    continue;
+                }
+                let focused = run("xdotool", &["getactivewindow"]).await.is_ok_and(|active|active == id);
+                if run("xdotool", &["windowminimize", &id]).await.is_ok() {
+                    handled.insert(id);
+                }
+                if focused && let Some(foreground) = &foreground {
+                    let _ = run("xdotool", &["windowactivate", foreground]).await;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    });
+    Ok(" Requested background launch.")
+}
+
+async fn x11_class(id: &str) -> String {
+    run("xprop", &["-id", id, "WM_CLASS"]).await.unwrap_or_default().to_lowercase()
 }
 
 fn looks_like_url(text: &str) -> bool {
@@ -154,33 +349,60 @@ pub fn tools() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "find_apps",
+            description: "Find installed applications by name, or list them alphabetically. Prefer the desktop ID shown in the second column when calling open_app.",
+            schema: || json!({"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":200}}}),
+            risk: safe,
+            summary: |_| "find installed apps".into(),
+            run: |_, input| Box::pin(async move {
+                let limit = n(&input, "limit").unwrap_or(80.0).clamp(1.0, 200.0) as usize;
+                Ok(find_apps(s(&input, "query"), limit).await.into())
+            }),
+        },
+        ToolDef {
             name: "open_app",
-            description: "Open an application, file, folder or URL. Accepts an app name as it appears in the applications menu (e.g. 'Firefox', 'Files', 'Discord'), a command name, a path, or a URL.",
-            schema: || json!({"type":"object","properties":{"target":{"type":"string","description":"App name, command, path, folder or URL"},"args":{"type":"string","description":"Optional command-line arguments"}},"required":["target"]}),
+            description: "Open an application, file, folder or URL. Accepts a desktop name or ID, command, path or URL. Use find_apps if the name is unclear.",
+            schema: || json!({"type":"object","properties":{"target":{"type":"string","description":"App name, desktop ID, command, path, folder or URL"},"args":{"type":"string","description":"Optional command-line arguments"},"background":{"type":"boolean","description":"Open it without bringing it to the front: it starts minimised and whatever the user was using stays in front"}},"required":["target"]}),
             risk: safe,
             summary: |i| format!("open {}", s(i, "target").unwrap_or("?")),
-            run: |_, i| {
-                Box::pin(async move {
-                    let target = s(&i, "target").unwrap_or("").trim().to_owned();
-                    ensure!(!target.is_empty(), "Say what to open");
-                    if looks_like_url(&target) || resolve_path(&target).exists() {
-                        let what = if looks_like_url(&target) { target.clone() } else { resolve_path(&target).display().to_string() };
-                        spawn_detached("xdg-open", &[&what])?;
-                        return Ok(format!("Opened {target}").into());
-                    }
-                    let extra: Vec<&str> = s(&i, "args").map(|a| a.split_whitespace().collect()).unwrap_or_default();
-                    // 1) a program on PATH with that name, 2) a desktop entry matching the name.
-                    if !target.contains(' ') && have(&target).await {
-                        spawn_detached(&target, &extra)?;
-                        return Ok(format!("Opened {target}").into());
-                    }
-                    if let Some(entry) = best_entry(&target, &desktop_entries()) {
-                        spawn_detached("gtk-launch", &[&entry])?;
-                        return Ok(format!("Opened {entry}").into());
-                    }
-                    Ok(format!("Could not find an app called \"{target}\".").into())
-                })
-            },
+            run: |_, input| Box::pin(async move {
+                let target = s(&input, "target").unwrap_or("").trim();
+                ensure!(!target.is_empty(), "Say what to open");
+                let background = b(&input, "background").unwrap_or(false);
+                let path = resolve_path(target);
+                if looks_like_url(target) || path.exists() {
+                    let what = if looks_like_url(target) { target.to_owned() } else { path.display().to_string() };
+                    let status = launch("xdg-open", &[&what], "", background).await?;
+                    return Ok(format!("Opened {target}.{status}").into());
+                }
+                let extra: Vec<&str> = s(&input, "args").map(|a| a.split_whitespace().collect()).unwrap_or_default();
+                if !target.contains(' ') && have(target).await {
+                    let status = launch(target, &extra, target, background).await?;
+                    return Ok(format!("Opened {target}.{status}").into());
+                }
+                if let Some(entry) = best_entry(target, &desktop_entries()) {
+                    let exe = Path::new(&entry.exec[0]).file_name().and_then(|s|s.to_str()).unwrap_or(&entry.id);
+                    let status = if extra.is_empty() && have("gio").await {
+                        let path = entry.file.to_string_lossy();
+                        launch("gio", &["launch", &path], exe, background).await?
+                    } else if extra.is_empty() && have("gtk-launch").await {
+                        launch("gtk-launch", &[&entry.id], exe, background).await?
+                    } else {
+                        let mut args: Vec<&str> = entry.exec.iter().skip(1).map(String::as_str).collect();
+                        args.extend(extra);
+                        launch(&entry.exec[0], &args, exe, background).await?
+                    };
+                    return Ok(format!("Opened {}.{status}", entry.name).into());
+                }
+                let query = target.to_lowercase();
+                if let Some((id, name)) = flatpak_apps().await.into_iter().find(|(id, name)|
+                    id.to_lowercase() == query || name.to_lowercase() == query
+                ) {
+                    let status = launch("flatpak", &["run", &id], &id, background).await?;
+                    return Ok(format!("Opened {name}.{status}").into());
+                }
+                Ok(format!("Could not find an app called \"{target}\".").into())
+            }),
         },
         ToolDef {
             name: "open_url",
@@ -509,17 +731,63 @@ mod tests {
 
     #[test]
     fn app_names_match_desktop_entries() {
-        let entries = vec![
-            ("firefox".to_owned(), "Firefox Web Browser".to_owned()),
-            ("org.gnome.Nautilus".to_owned(), "Files".to_owned()),
-            ("discord-canary".to_owned(), "Discord Canary".to_owned()),
-            ("discord".to_owned(), "Discord".to_owned()),
-        ];
-        assert_eq!(best_entry("Firefox", &entries).as_deref(), Some("firefox"));
-        assert_eq!(best_entry("files", &entries).as_deref(), Some("org.gnome.Nautilus"));
-        assert_eq!(best_entry("discord", &entries).as_deref(), Some("discord"), "exact beats partial");
-        assert_eq!(best_entry("canary", &entries).as_deref(), Some("discord-canary"));
-        assert_eq!(best_entry("photoshop", &entries), None);
+        let entries = [
+            ("firefox", "Firefox Web Browser"),
+            ("org.gnome.Nautilus", "Files"),
+            ("discord-canary", "Discord Canary"),
+            ("discord", "Discord"),
+        ].into_iter().map(|(id, name)| parse_entry(
+            &format!("[Desktop Entry]\nName={name}\nExec={id}"),
+            PathBuf::from(format!("{id}.desktop")), "desktop menu"
+        ).unwrap()).collect::<Vec<_>>();
+        assert_eq!(best_entry("Firefox", &entries).map(|app| app.id.as_str()), Some("firefox"));
+        assert_eq!(best_entry("files", &entries).map(|app| app.id.as_str()), Some("org.gnome.Nautilus"));
+        assert_eq!(best_entry("discord", &entries).map(|app| app.id.as_str()), Some("discord"));
+        assert_eq!(best_entry("canary", &entries).map(|app| app.id.as_str()), Some("discord-canary"));
+        assert!(best_entry("photoshop", &entries).is_none());
+    }
+
+    #[test]
+    fn desktop_entry_ignores_hidden_apps_and_expands_no_file_arguments() {
+        let parse = |text| parse_entry(text, PathBuf::from("test.desktop"), "desktop menu");
+        assert!(parse("[Desktop Entry]\nName=Hidden\nExec=app\nNoDisplay=true").is_none());
+        assert!(parse("[Desktop Entry]\nName=Hidden\nExec=app\nHidden=true").is_none());
+        let entry = parse("[Desktop Entry]\nName=Steam\nExec=steam \"two words\" %U %f %%\n[Desktop Action Play]\nName=Play\nExec=other").unwrap();
+        assert_eq!(entry.name, "Steam");
+        assert_eq!(entry.exec, ["steam", "two words", "%"]);
+        assert_eq!(entry.id, "test");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated X11 display with a window manager and xmessage"]
+    async fn background_launch_minimizes_new_app() {
+        let active = "Jarvis test foreground";
+        let away = "Jarvis test background";
+        spawn_detached("xmessage", &["-title", active, "Foreground fixture"]).unwrap();
+        let foreground = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(ids) = run("xdotool", &["search", "--onlyvisible", "--name", active]).await
+                    && let Some(id) = ids.lines().next()
+                {
+                    break id.to_owned();
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }).await.unwrap();
+        run("xdotool", &["windowactivate", "--sync", &foreground]).await.unwrap();
+        assert!(launch("xmessage", &["-title", away, "Background fixture"], "xmessage", true).await.unwrap().contains("Requested"));
+        tokio::time::timeout(Duration::from_secs(6), async {
+            loop {
+                if let Ok(ids) = run("xdotool", &["search", "--name", away]).await
+                    && let Some(id) = ids.lines().next()
+                    && run("xprop", &["-id", id, "_NET_WM_STATE"]).await.is_ok_and(|state|state.contains("_NET_WM_STATE_HIDDEN"))
+                {
+                    assert_eq!(run("xdotool", &["getactivewindow"]).await.unwrap(), foreground);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }).await.unwrap();
     }
 
     #[test]

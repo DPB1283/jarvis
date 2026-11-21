@@ -115,13 +115,41 @@ function report() {
   const state = {
     game: "connect_four", board, turn: turn === 1 ? "you" : "jarvis", you: "yellow", jarvis: "red", level: NAMES[$("level").value],
     status: won ? "won" : isFull(board) ? "draw" : "playing", over: !!won || isFull(board),
-    winner: won ? (won.player === 1 ? "you" : "jarvis") : null, moves,
+    winner: won ? (won.player === 1 ? "you" : "jarvis") : null, moves, lastCommand,
   };
   fetch("./state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) }).catch(() => {});
 }
 
+// Moves said out loud ("column 4", "four") reach the page through the local server.
+let lastCommand = null;
+const NUMBER_WORDS = { one: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5, six: 6, seven: 7 };
+function voiceMove(text) {
+  if (/\b(new game|restart|start over)\b/.test(text)) { start(); return { ok: true }; }
+  const word = text.split(/\s+/).map(w => NUMBER_WORDS[w] ?? (/^[1-7]$/.test(w) ? Number(w) : null)).find(n => n != null);
+  if (!word) return { ok: false, error: "Say a column from 1 (left) to 7 (right)." };
+  if (busy || won || isFull(board)) return { ok: false, error: won || isFull(board) ? "The game is over. Say new game to play again." : "Jarvis is still thinking." };
+  if (turn !== 1) return { ok: false, error: "It's Jarvis's turn." };
+  if (!legalColumns(board).includes(word - 1)) return { ok: false, error: `Column ${word} is full.` };
+  play(word - 1);
+  return { ok: true };
+}
+async function poll() {
+  try {
+    const response = await fetch("./command", { cache: "no-store" });
+    if (response.status === 200) {
+      const { id, text } = await response.json();
+      const outcome = voiceMove(text);
+      lastCommand = { id, text, ...outcome };
+      if (!outcome.ok) statusEl.textContent = outcome.error;
+      report();
+    }
+  } catch {}
+  setTimeout(poll, 600);
+}
+
 $("new").onclick = start;
 start();
+poll();
 </script>
 </body>
 </html>

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dots and Boxes against Jarvis</title>
+<style>
+:root { color-scheme: dark; --bg:#0e1116; --panel:#171b22; --line:#2a313c; --text:#e6edf3; --dim:#9da9b7; --accent:#2dd4bf; --you:#f5d66f; --jarvis:#f38a86; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,"Segoe UI",sans-serif; }
+main { width:min(100%, 900px); margin:auto; padding:clamp(10px, 3vw, 24px); display:grid; grid-template-columns:minmax(0, 1fr) minmax(210px, .54fr); gap:20px; align-items:start; }
+h1 { grid-column:1/-1; margin:0; font-size:clamp(19px, 4vw, 25px); font-weight:650; }
+h1 span { color:var(--accent); }
+aside { display:grid; gap:12px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+.options { display:grid; gap:10px; }
+.options label { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--dim); }
+.actions { display:flex; flex-wrap:wrap; gap:8px; }
+select, .actions button { background:#202733; color:var(--text); border:1px solid #3b4656; border-radius:6px; padding:6px 9px; font:inherit; }
+button:not(:disabled), select { cursor:pointer; }
+button:disabled { opacity:.45; }
+.actions button:hover:not(:disabled), select:hover { border-color:var(--accent); }
+.actions .primary { background:var(--accent); color:#092321; border-color:var(--accent); font-weight:650; }
+button:focus-visible, select:focus-visible { outline:2px solid #fff; outline-offset:-3px; z-index:1; }
+#status { font-weight:650; }
+#detail, .help { color:var(--dim); font-size:13px; margin:4px 0 0; }
+.you { color:var(--you); } .jarvis { color:var(--jarvis); }
+.coord { display:grid; place-items:center; font-size:clamp(10px, 2vw, 13px); line-height:1; color:var(--dim); }
+@media (max-width:650px) {
+  main { grid-template-columns:minmax(0, 1fr); gap:12px; max-width:560px; }
+}
+
+#board { --peg:clamp(14px, 3.4vw, 23px); width:100%; aspect-ratio:1; display:grid; grid-template:18px var(--peg) repeat(var(--size),minmax(0,1fr) var(--peg)) / 18px var(--peg) repeat(var(--size),minmax(0,1fr) var(--peg)); }
+.peg { display:grid; place-items:center; }
+.peg::before { content:""; width:8px; aspect-ratio:1; border-radius:50%; background:#a3afba; z-index:1; }
+.edge { position:relative; min-width:0; min-height:0; border:0; padding:0; background:transparent; }
+.edge:disabled { opacity:1; }
+.edge::before { content:""; position:absolute; border-radius:4px; background:#303947; pointer-events:none; }
+.horizontal::before { left:calc(-1 * var(--peg) / 2); right:calc(-1 * var(--peg) / 2); height:4px; top:calc(50% - 2px); }
+.vertical::before { top:calc(-1 * var(--peg) / 2); bottom:calc(-1 * var(--peg) / 2); width:4px; left:calc(50% - 2px); }
+.edge.owner-1::before { background:var(--you); }
+.edge.owner-2::before { background:var(--jarvis); }
+.edge.last::before { outline:1px solid #e6edf3; }
+.edge:not(:disabled):hover::before, .edge:focus-visible::before, .edge.hint::before { background:var(--accent); }
+.box { display:grid; place-items:center; border-radius:5px; font-weight:750; }
+.box.owner-1 { background:#f5d66f22; color:var(--you); }
+.box.owner-2 { background:#f38a8622; color:var(--jarvis); }
+.scores { display:flex; justify-content:space-between; gap:8px; margin-bottom:8px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dots and Boxes against <span>Jarvis</span></h1>
+  <div id="board" role="group" aria-label="Dots and Boxes board" tabindex="-1"></div>
+  <aside>
+    <div class="panel">
+      <div class="scores"><strong class="you">You <span id="you-score">0</span></strong><strong class="jarvis">Jarvis <span id="jarvis-score">0</span></strong></div>
+      <div role="status"><div id="status"></div><div id="detail"></div></div>
+    </div>
+    <div class="panel options">
+      <label>Difficulty
+        <select id="level">
+          <option value="1">Beginner</option>
+          <option value="2">Easy</option>
+          <option value="3" selected>Medium</option>
+          <option value="4">Hard</option>
+          <option value="5">Expert</option>
+        </select>
+      </label>
+      <label>Board size
+        <select id="size">
+          <option value="3">3 × 3</option>
+          <option value="4">4 × 4</option>
+          <option value="5" selected>5 × 5</option>
+          <option value="6">6 × 6</option>
+          <option value="7">7 × 7</option>
+        </select>
+      </label>
+      <div class="actions"><button id="new" class="primary">New game</button><button id="undo">Undo</button><button id="hint">Hint</button></div>
+    </div>
+    <div class="panel">
+      Draw a line between two neighboring dots. Close a box to score a point and take another turn.
+      <p class="help">Say “A1 to B1” to draw a line by voice. To change board size, select a size and start a new game.</p>
+    </div>
+  </aside>
+</main>
+<script type="module">
+import { YOU, JARVIS, layout, createGame, edgeName, parseEdge, playEdge, score, gameStatus } from "./dots-engine.js";
+
+let game, history, status, hint, lastEdge;
+
+function state() {
+  const { size, lines, owners, turn } = game;
+  return {
+    game: "dots_and_boxes", board: { size, lines, owners }, turn: turn === YOU ? "you" : "jarvis", status,
+    over: status !== "playing", score: score(game), moves: history.slice(-12).map(entry => edgeName(size, entry.edge)),
+  };
+}
+
+function start() {
+  revision++;
+  game = createGame(Number($("size").value));
+  history = [];
+  hint = lastEdge = null;
+  refresh();
+}
+
+function clearHint() { hint = null; }
+
+function refresh() {
+  status = gameStatus(game);
+  render();
+  report();
+}
+
+function coordinate(text) {
+  const label = document.createElement("span");
+  label.className = "coord";
+  label.setAttribute("aria-hidden", "true");
+  label.textContent = text;
+  return label;
+}
+
+function place(fragment, element, row, col) {
+  element.style.gridArea = row + " / " + col;
+  fragment.append(element);
+}
+
+function render() {
+  const focused = boardEl.contains(document.activeElement) ? document.activeElement.dataset.edge : null;
+  const { size, lines, owners, turn } = game;
+  const fragment = document.createDocumentFragment();
+  const canPlay = turn === YOU && status === "playing";
+  boardEl.style.setProperty("--size", size);
+  for (let dot = 0; dot <= size; dot++) {
+    place(fragment, coordinate(String.fromCharCode(65 + dot)), 1, 2 * dot + 2);
+    place(fragment, coordinate(String(dot + 1)), 2 * dot + 2, 1);
+    for (let col = 0; col <= size; col++) {
+      const node = document.createElement("span");
+      node.className = "peg";
+      place(fragment, node, 2 * dot + 2, 2 * col + 2);
+    }
+  }
+  for (let id = 0; id < owners.length; id++) {
+    const box = document.createElement("span");
+    const owner = owners[id];
+    box.className = "box owner-" + owner;
+    if (owner) {
+      box.textContent = owner === YOU ? "Y" : "J";
+      box.setAttribute("aria-label", owner === YOU ? "Your box" : "Jarvis’s box");
+    }
+    place(fragment, box, 2 * Math.floor(id / size) + 3, 2 * (id % size) + 3);
+  }
+  for (const { id, across, row, col } of layout(size).edges) {
+    const edge = document.createElement("button");
+    edge.className = "edge " + (across ? "horizontal" : "vertical") + " owner-" + lines[id];
+    edge.classList.toggle("last", id === lastEdge);
+    edge.classList.toggle("hint", id === hint);
+    edge.dataset.edge = id;
+    edge.disabled = !canPlay || Boolean(lines[id]);
+    edge.setAttribute("aria-label", edgeName(size, id));
+    edge.onclick = () => commit(id);
+    place(fragment, edge, 2 * row + (across ? 2 : 3), 2 * col + (across ? 3 : 2));
+  }
+  boardEl.replaceChildren(fragment);
+  if (focused != null) {
+    const current = boardEl.querySelector('[data-edge="' + focused + '"]:not(:disabled)');
+    (current ?? boardEl.querySelector("button:not(:disabled)") ?? boardEl).focus({ preventScroll: true });
+  }
+  $("status").textContent = {
+    won: "You win", lost: "Jarvis wins", draw: "Draw",
+    playing: turn === YOU ? "Your move" : "Jarvis is thinking…",
+  }[status];
+  const extraTurn = history.at(-1)?.game.turn === turn;
+  $("detail").textContent = hint != null ? "Try " + edgeName(size, hint)
+    : status === "playing" && extraTurn ? (turn === YOU ? "You closed a box. Go again." : "Jarvis closed a box and goes again.") : "";
+  const points = score(game);
+  $("you-score").textContent = points.you;
+  $("jarvis-score").textContent = points.jarvis;
+  $("hint").disabled = !canPlay;
+  $("undo").disabled = !history.some(entry => entry.game.turn === YOU);
+}
+
+function commit(edge) {
+  const next = playEdge(game, edge);
+  if (!next) return;
+  revision++;
+  history.push({ game, edge });
+  game = next;
+  lastEdge = edge;
+  clearHint();
+  refresh();
+  if (status === "playing" && game.turn === JARVIS) ask("move");
+}
+
+function undo() {
+  const index = history.findLastIndex(entry => entry.game.turn === YOU);
+  if (index < 0) return;
+  revision++;
+  game = history[index].game;
+  history.length = index;
+  lastEdge = history.at(-1)?.edge ?? null;
+  clearHint();
+  refresh();
+}
+
+function applyCommand(text) {
+  if (status !== "playing") return "Start a new game to draw another line.";
+  if (game.turn !== YOU) return "Wait for Jarvis to finish his move.";
+  const edge = parseEdge(text, game.size);
+  if (edge == null) return "Name two neighboring dots, like A1 to B1.";
+  if (game.lines[edge]) return "That line has already been drawn.";
+  commit(edge);
+  return null;
+}
+
+function ask(kind) {
+  if (status !== "playing" || (kind === "hint" && game.turn !== YOU)) return;
+  worker.postMessage({ revision, kind, board: game, level: kind === "hint" ? 4 : Number(level.value) });
+}
+
+function onWorkerReply({ data }) {
+  if (data.revision !== revision || game.lines[data.move] !== 0) return;
+  if (data.kind === "move" && game.turn === JARVIS) commit(data.move);
+  if (data.kind === "hint" && game.turn === YOU) {
+    hint = data.move;
+    render();
+  }
+}
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const level = $("level");
+const initialLevel = Number(params.get("level"));
+if (Number.isInteger(initialLevel) && initialLevel >= 1 && initialLevel <= 5) level.value = String(initialLevel);
+const boardEl = $("board");
+const worker = new Worker("./dots-worker.js", { type: "module" });
+worker.onmessage = onWorkerReply;
+let revision = 0;
+let lastCommand = null;
+let reportQueue = Promise.resolve();
+
+function report() {
+  const body = JSON.stringify({ ...state(), level: level.selectedOptions[0].text, lastCommand });
+  reportQueue = reportQueue.then(() => fetch("./state", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(3000),
+  })).catch(() => {});
+  return reportQueue;
+}
+
+async function pollCommand() {
+  try {
+    const response = await fetch("./command", { signal: AbortSignal.timeout(3000) });
+    if (response.status === 200) {
+      const { id, text } = await response.json();
+      const error = applyCommand(text);
+      lastCommand = error ? { id, text, ok: false, error } : { id, text, ok: true };
+      if (error) $("detail").textContent = error;
+      await report();
+    }
+  } catch {
+    // The local server may be closing. Retry while this page stays open.
+  } finally {
+    setTimeout(pollCommand, 600);
+  }
+}
+
+level.addEventListener("change", () => {
+  revision++;
+  clearHint();
+  refresh();
+  if (state().turn === "jarvis" && !state().over) ask("move");
+});
+$("new").addEventListener("click", start);
+$("undo").addEventListener("click", undo);
+$("hint").addEventListener("click", () => ask("hint"));
+start();
+pollCommand();
+</script>
+</body>
+</html>

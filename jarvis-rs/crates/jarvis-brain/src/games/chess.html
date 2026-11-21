@@ -207,15 +207,68 @@ function report() {
     game: "chess", fen: chess.fen(), pgn: chess.pgn(), turn: chess.turn() === "w" ? "white" : "black",
     you: you === "w" ? "white" : "black", level: NAMES[$("level").value], status, over: chess.isGameOver(),
     winner: chess.isCheckmate() ? (chess.turn() === you ? "jarvis" : "you") : null,
-    history: chess.history(), moves: chess.history().length,
+    history: chess.history(), moves: chess.history().length, lastCommand,
   };
   fetch("./state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) }).catch(() => {});
 }
 
-$("new").onclick = start; $("undo").onclick = undo; $("hint").onclick = showHint;
-$("flip").onclick = () => { flipped = !flipped; render(); };
+// Moves said out loud reach the page through the local server: "e2 to e4", "knight f3", "bishop takes c6",
+// "castle kingside", or plain notation like "Nf3".
+let lastCommand = null;
+const PIECES = { knight: "n", night: "n", bishop: "b", rook: "r", castle: "r", queen: "q", king: "k", pawn: "p" };
+const LETTERS = { alpha: "a", bravo: "b", charlie: "c", delta: "d", echo: "e", foxtrot: "f", golf: "g", hotel: "h", bee: "b", be: "b", see: "c", sea: "c", dee: "d", gee: "g" };
+const DIGITS = { one: "1", two: "2", to: "2", too: "2", three: "3", four: "4", for: "4", five: "5", six: "6", seven: "7", eight: "8", ate: "8" };
+function voiceMove(text) {
+  if (/\b(new game|restart|start over)\b/.test(text)) { start(); return { ok: true }; }
+  if (/\bhint\b/.test(text)) { showHint(); return { ok: true }; }
+  if (/\b(undo|take (it|that) back)\b/.test(text)) { undo(); return { ok: true }; }
+  if (busy) return { ok: false, error: "Jarvis is still thinking." };
+  if (over) return { ok: false, error: "The game is over. Say new game to play again." };
+  if (chess.turn() !== you) return { ok: false, error: "It's Jarvis's turn." };
+  const legal = chess.moves({ verbose: true });
+  const play = m => { commit(m.from, m.to, m.promotion); return { ok: true, san: m.san }; };
+  if (/castle|castles|castling/.test(text) && /king ?side|short/.test(text) || /^o-o$/.test(text.trim())) { const m = legal.find(m => m.san.startsWith("O-O") && !m.san.startsWith("O-O-O")); return m ? play(m) : { ok: false, error: "You can't castle kingside right now." }; }
+  if (/castle|castles|castling/.test(text) && /queen ?side|long/.test(text) || /^o-o-o$/.test(text.trim())) { const m = legal.find(m => m.san.startsWith("O-O-O")); return m ? play(m) : { ok: false, error: "You can't castle queenside right now." }; }
+  // Plain notation first ("nf3", "exd5", "e8=q").
+  const san = text.trim().replace(/^([nbrqk])/, c => c.toUpperCase()).replace(/=([nbrq])/, (_, c) => "=" + c.toUpperCase());
+  const bySan = legal.find(m => m.san.replace(/[+#]/g, "").toLowerCase() === text.trim().replace(/[+#]/g, "").toLowerCase() || m.san.replace(/[+#]/g, "") === san.replace(/[+#]/g, ""));
+  if (bySan) return play(bySan);
+  // Spoken form: map words to letters and digits, then find squares and piece names.
+  const words = text.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean).map(w => LETTERS[w] ?? DIGITS[w] ?? w);
+  const squares = (words.join(" ").match(/\b[a-h] ?[1-8]\b/g) ?? []).map(s => s.replace(" ", ""));
+  const piece = words.map(w => PIECES[w]).find(Boolean);
+  const promotion = /promot|become|make it|=/.test(text) ? (words.slice(words.findIndex(w => /promot|become/.test(w))).map(w => PIECES[w]).find(p => p && p !== "p" && p !== "k") ?? "q") : undefined;
+  let options = [];
+  if (squares.length >= 2) options = legal.filter(m => m.from === squares[0] && m.to === squares[1]);
+  else if (squares.length === 1) options = legal.filter(m => m.to === squares[0] && (piece ? m.piece === piece : true));
+  if (options.length > 1 && !piece && squares.length === 1) options = options.filter(m => m.piece === "p").length === 1 ? options.filter(m => m.piece === "p") : options;
+  if (options.length > 1) {
+    const promoted = options.filter(m => m.promotion === (promotion ?? "q"));
+    if (promoted.length === 1) options = promoted;
+  }
+  if (options.length === 1) return play(options[0]);
+  if (options.length > 1) return { ok: false, error: `That could be ${options.map(m => m.san).join(" or ")}. Say which piece, or the square it comes from.` };
+  if (!squares.length) return { ok: false, error: `I couldn't find a move in "${text}". Try "e2 to e4" or "knight f3".` };
+  return { ok: false, error: `${squares.join(" to ")} isn't a legal move for you right now.` };
+}
+async function poll() {
+  try {
+    const response = await fetch("./command", { cache: "no-store" });
+    if (response.status === 200) {
+      const { id, text } = await response.json();
+      const outcome = voiceMove(text);
+      lastCommand = { id, text, ...outcome };
+      if (!outcome.ok) { statusEl.className = "warn"; statusEl.textContent = outcome.error; }
+      report();
+    }
+  } catch {}
+  setTimeout(poll, 600);
+}
+
+$("new").onclick = start; $("undo").onclick = undo; $("hint").onclick = showHint;$("flip").onclick = () => { flipped = !flipped; render(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") { selected = null; targets = []; $("promo").classList.remove("on"); render(); } });
 start();
+poll();
 </script>
 </body>
 </html>

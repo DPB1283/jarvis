@@ -1,4 +1,4 @@
-//! The mini games (chess and Connect Four). Jarvis serves them as a small local web page and opens it in the
+//! The mini games (chess, Connect Four, sea battle, checkers, dots and boxes). Jarvis serves them as a small local web page and opens it in the
 //! browser; the game runs entirely in the page (the engines are in `engine.js` / `c4engine.js`, tested with
 //! `node --test crates/jarvis-brain/src/games/`). The page reports the position back here so Jarvis can talk
 //! about the game.
@@ -15,7 +15,7 @@ use tokio::sync::OnceCell;
 
 const INDEX: &str = r#"<!doctype html><meta charset="utf-8"><title>Jarvis games</title>
 <style>body{background:#0e1116;color:#e6edf3;font:16px system-ui;display:grid;place-content:center;min-height:100vh;gap:14px;text-align:center}a{color:#2dd4bf;font-size:22px}</style>
-<h1>Play against Jarvis</h1><a href="chess">Chess</a><a href="connect4">Connect Four</a>"#;
+<h1>Play against Jarvis</h1><a href="chess">Chess</a><a href="connect4">Connect Four</a><a href="seabattle">Sea battle</a><a href="checkers">Checkers</a><a href="dots">Dots and boxes</a>"#;
 
 struct Asset {
     path: &'static str,
@@ -30,6 +30,14 @@ const ASSETS: &[Asset] = &[
     Asset { path: "engine.js", kind: "text/javascript; charset=utf-8", body: include_str!("engine.js") },
     Asset { path: "c4engine.js", kind: "text/javascript; charset=utf-8", body: include_str!("c4engine.js") },
     Asset { path: "engine-worker.js", kind: "text/javascript; charset=utf-8", body: include_str!("engine-worker.js") },
+    Asset { path: "seabattle", kind: "text/html; charset=utf-8", body: include_str!("seabattle.html") },
+    Asset { path: "seabattle-engine.js", kind: "text/javascript; charset=utf-8", body: include_str!("seabattle-engine.js") },
+    Asset { path: "checkers", kind: "text/html; charset=utf-8", body: include_str!("checkers.html") },
+    Asset { path: "checkers-engine.js", kind: "text/javascript; charset=utf-8", body: include_str!("checkers-engine.js") },
+    Asset { path: "checkers-worker.js", kind: "text/javascript; charset=utf-8", body: include_str!("checkers-worker.js") },
+    Asset { path: "dots", kind: "text/html; charset=utf-8", body: include_str!("dots.html") },
+    Asset { path: "dots-engine.js", kind: "text/javascript; charset=utf-8", body: include_str!("dots-engine.js") },
+    Asset { path: "dots-worker.js", kind: "text/javascript; charset=utf-8", body: include_str!("dots-worker.js") },
     Asset { path: "license", kind: "text/plain; charset=utf-8", body: include_str!("LICENSE-chessjs.txt") },
 ];
 
@@ -37,7 +45,11 @@ pub struct Server {
     pub port: u16,
     pub token: String,
     state: Mutex<Option<Value>>,
+    /// Moves the user said out loud ("fire at B7"), waiting for the page to pick them up.
+    commands: Mutex<std::collections::VecDeque<(u64, String)>>,
 }
+
+static NEXT_COMMAND: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 static SERVER: OnceCell<Arc<Server>> = OnceCell::const_new();
 
@@ -50,6 +62,7 @@ pub async fn server() -> Result<Arc<Server>> {
                 port: listener.local_addr()?.port(),
                 token: uuid::Uuid::new_v4().simple().to_string(),
                 state: Mutex::new(None),
+                commands: Mutex::new(Default::default()),
             });
             let serving = server.clone();
             tokio::spawn(async move {
@@ -70,6 +83,27 @@ pub async fn server() -> Result<Arc<Server>> {
 /// The newest position the page reported, if a game was started.
 pub fn last_state() -> Option<Value> {
     SERVER.get().and_then(|s| s.state.lock().unwrap().clone())
+}
+
+/// Queue a spoken move for the open game page (it polls command). Returns its id, which the page echoes back in
+/// its state as lastCommand.id once it has tried the move. None if no game server is running.
+pub fn send_command(text: &str) -> Option<u64> {
+    let server = SERVER.get()?;
+    let id = NEXT_COMMAND.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut queue = server.commands.lock().unwrap();
+    queue.push_back((id, text.chars().take(200).collect()));
+    while queue.len() > 5 {
+        queue.pop_front(); // a page that isn't open never collects them
+    }
+    Some(id)
+}
+
+/// A new game starts with no leftover spoken moves and no old position.
+pub fn reset() {
+    if let Some(server) = SERVER.get() {
+        server.commands.lock().unwrap().clear();
+        *server.state.lock().unwrap() = None;
+    }
 }
 
 impl Server {
@@ -93,6 +127,10 @@ impl Server {
                 let state = self.state.lock().unwrap().clone().unwrap_or(Value::Null);
                 (200, "application/json", state.to_string().into_bytes())
             }
+            ("GET", "command") => match self.commands.lock().unwrap().pop_front() {
+                Some((id, text)) => (200, "application/json", serde_json::json!({ "id": id, "text": text }).to_string().into_bytes()),
+                None => (204, "text/plain", Vec::new()),
+            },
             ("POST", "state") => {
                 if body.len() > 64 * 1024 {
                     return text(413, "Too large");
@@ -177,13 +215,13 @@ mod tests {
     use super::*;
 
     fn test_server() -> Server {
-        Server { port: 4321, token: "tok".into(), state: Mutex::new(None) }
+        Server { port: 4321, token: "tok".into(), state: Mutex::new(None), commands: Mutex::new(Default::default()) }
     }
 
     #[test]
     fn pages_and_scripts_are_served_under_the_token() {
         let s = test_server();
-        for path in ["chess", "connect4", "chess.js", "engine.js", "c4engine.js", "engine-worker.js", "license"] {
+        for path in ["chess", "connect4", "chess.js", "engine.js", "c4engine.js", "engine-worker.js", "license", "seabattle", "seabattle-engine.js", "checkers", "checkers-engine.js", "checkers-worker.js", "dots", "dots-engine.js", "dots-worker.js"] {
             let (status, _, body) = s.respond("GET", &format!("/tok/{path}"), "127.0.0.1:4321", b"");
             assert_eq!(status, 200, "{path}");
             assert!(!body.is_empty(), "{path}");
@@ -219,6 +257,19 @@ mod tests {
         assert_eq!(s.respond("POST", "/tok/state", "127.0.0.1:4321", b"not json").0, 400);
         assert_eq!(s.respond("POST", "/tok/state", "127.0.0.1:4321", b"[1,2]").0, 400, "must be an object");
         assert_eq!(s.respond("POST", "/tok/state", "127.0.0.1:4321", &vec![b' '; 70_000]).0, 413);
+    }
+
+    #[test]
+    fn spoken_moves_are_handed_to_the_page_once() {
+        let s = test_server();
+        assert_eq!(s.respond("GET", "/tok/command", "127.0.0.1:4321", b"").0, 204, "nothing waiting");
+        s.commands.lock().unwrap().push_back((7, "fire at b7".into()));
+        let (status, kind, body) = s.respond("GET", "/tok/command", "127.0.0.1:4321", b"");
+        assert_eq!((status, kind), (200, "application/json"));
+        let command: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!((command["id"].as_u64(), command["text"].as_str()), (Some(7), Some("fire at b7")));
+        assert_eq!(s.respond("GET", "/tok/command", "127.0.0.1:4321", b"").0, 204, "each command is delivered once");
+        assert_eq!(s.respond("GET", "/tok/command", "evil.example:4321", b"").0, 403);
     }
 
     #[tokio::test]

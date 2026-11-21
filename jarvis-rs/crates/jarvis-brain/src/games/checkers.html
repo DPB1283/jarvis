@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkers against Jarvis</title>
+<style>
+:root { color-scheme: dark; --bg:#0e1116; --panel:#171b22; --line:#2a313c; --text:#e6edf3; --dim:#9da9b7; --accent:#2dd4bf; --you:#f5d66f; --jarvis:#f38a86; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,"Segoe UI",sans-serif; }
+main { width:min(100%, 900px); margin:auto; padding:clamp(10px, 3vw, 24px); display:grid; grid-template-columns:minmax(0, 1fr) minmax(210px, .54fr); gap:20px; align-items:start; }
+h1 { grid-column:1/-1; margin:0; font-size:clamp(19px, 4vw, 25px); font-weight:650; }
+h1 span { color:var(--accent); }
+aside { display:grid; gap:12px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+.options { display:grid; gap:10px; }
+.options label { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--dim); }
+.actions { display:flex; flex-wrap:wrap; gap:8px; }
+select, .actions button { background:#202733; color:var(--text); border:1px solid #3b4656; border-radius:6px; padding:6px 9px; font:inherit; }
+button:not(:disabled), select { cursor:pointer; }
+button:disabled { opacity:.45; }
+.actions button:hover:not(:disabled), select:hover { border-color:var(--accent); }
+.actions .primary { background:var(--accent); color:#092321; border-color:var(--accent); font-weight:650; }
+button:focus-visible, select:focus-visible { outline:2px solid #fff; outline-offset:-3px; z-index:1; }
+#status { font-weight:650; }
+#detail, .help { color:var(--dim); font-size:13px; margin:4px 0 0; }
+.you { color:var(--you); } .jarvis { color:var(--jarvis); }
+.coord { display:grid; place-items:center; font-size:clamp(10px, 2vw, 13px); line-height:1; color:var(--dim); }
+@media (max-width:650px) {
+  main { grid-template-columns:minmax(0, 1fr); gap:12px; max-width:560px; }
+}
+
+#board { width:100%; aspect-ratio:1; display:grid; grid-template:18px repeat(8,minmax(0,1fr)) / 18px repeat(8,minmax(0,1fr)); }
+.square { display:grid; place-items:center; width:100%; height:100%; min-width:0; min-height:0; padding:0; border:0; border-radius:0; position:relative; }
+.light { background:#a4b0a7; } .dark { background:#40514e; }
+.square:disabled { opacity:1; }
+.dark:not(:disabled):hover, .selected { background:#566c65; }
+.dark.destination::after { content:""; width:24%; aspect-ratio:1; border-radius:50%; background:var(--accent); }
+.dark.hint { box-shadow:inset 0 0 0 3px var(--accent); }
+.piece { width:72%; aspect-ratio:1; border-radius:50%; border:2px solid #0006; box-shadow:inset 0 0 0 2px #fff4, 0 2px 2px #0008; display:grid; place-items:center; color:#24241e; font-size:clamp(11px, 3vw, 17px); font-weight:800; }
+.player-piece { background:var(--you); } .jarvis-piece { background:var(--jarvis); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Checkers against <span>Jarvis</span></h1>
+  <div id="board" role="group" aria-label="Checkers board" tabindex="-1"></div>
+  <aside>
+    <div class="panel" role="status"><div id="status"></div><div id="detail"></div></div>
+    <div class="panel options">
+      <label>Difficulty
+        <select id="level">
+          <option value="1">Beginner</option>
+          <option value="2">Easy</option>
+          <option value="3" selected>Medium</option>
+          <option value="4">Hard</option>
+          <option value="5">Expert</option>
+        </select>
+      </label>
+      <div class="actions"><button id="new" class="primary">New game</button><button id="undo">Undo</button><button id="hint">Hint</button></div>
+    </div>
+    <div class="panel">
+      <strong class="you">You</strong> · <strong class="jarvis">Jarvis</strong>
+      <p class="help">Select a piece, then a highlighted square. Take captures when available and finish all jumps with the same piece.</p>
+      <p class="help">Say “c3 to d4” to move by voice. For a multi-jump, say every landing square.</p>
+    </div>
+  </aside>
+</main>
+<script type="module">
+import { YOU, JARVIS, initialBoard, squareName, parsePath, legalMoves, playMove } from "./checkers-engine.js";
+
+let board, turn, path, hint, history, quiet, status, legal;
+const samePath = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
+
+function state() {
+  return {
+    game: "checkers", board, turn: turn === YOU ? "you" : "jarvis", status,
+    over: status !== "playing", moves: history.slice(-12).map(entry => entry.text),
+  };
+}
+
+function start() {
+  revision++;
+  board = initialBoard();
+  turn = YOU;
+  history = [];
+  quiet = 0;
+  path = [];
+  hint = null;
+  refresh();
+}
+
+function clearHint() { hint = null; }
+
+function refresh() {
+  legal = legalMoves(board, turn);
+  const repetitions = history.filter(entry => entry.turn === turn && entry.board.every((piece, i) => piece === board[i]));
+  status = !legal.length ? (turn === YOU ? "lost" : "won")
+    : quiet >= 80 || repetitions.length >= 2 ? "draw" : "playing";
+  render();
+  report();
+}
+
+function render() {
+  const focused = boardEl.contains(document.activeElement) ? document.activeElement.dataset.square : null;
+  const options = status === "playing" && turn === YOU ? legal : [];
+  const branches = path.length ? options.filter(move => path.every((square, i) => move.path[i] === square)) : [];
+  const destinations = new Set(branches.map(move => move.path[path.length]));
+  const staged = path.length > 1
+    ? playMove(board, { path, captured: branches[0].captured.slice(0, path.length - 1) })
+    : board;
+  const starts = new Set(options.map(move => move.path[0]));
+  const fragment = document.createDocumentFragment();
+  for (let row = 0; row < 8; row++) {
+    const label = coordinate(String(8 - row));
+    label.style.gridArea = (row + 2) + " / 1";
+    fragment.append(label);
+  }
+  for (let col = 0; col < 8; col++) {
+    const label = coordinate(String.fromCharCode(65 + col));
+    label.style.gridArea = "1 / " + (col + 2);
+    fragment.append(label);
+  }
+  for (let square = 0; square < 64; square++) {
+    const row = square >> 3, col = square % 8;
+    const dark = (row + col) % 2;
+    const cell = document.createElement(dark ? "button" : "div");
+    cell.className = "square " + (dark ? "dark" : "light");
+    cell.style.gridArea = (row + 2) + " / " + (col + 2);
+    if (dark) {
+      const piece = staged[square];
+      const selected = path.at(-1) === square;
+      const next = destinations.has(square);
+      cell.dataset.square = square;
+      cell.disabled = path.length > 1 ? !next : !(starts.has(square) || next);
+      cell.classList.toggle("selected", selected);
+      cell.classList.toggle("destination", next);
+      cell.classList.toggle("hint", Boolean(hint?.path.includes(square)));
+      cell.setAttribute("aria-label", squareName(square) + (piece ? (piece > 0 ? ", your " : ", Jarvis’s ") + (Math.abs(piece) === 2 ? "king" : "piece") : ""));
+      cell.onclick = () => clickSquare(square);
+      if (piece) {
+        const disk = document.createElement("span");
+        disk.className = "piece " + (piece > 0 ? "player-piece" : "jarvis-piece");
+        if (Math.abs(piece) === 2) disk.textContent = "K";
+        cell.append(disk);
+      }
+    }
+    fragment.append(cell);
+  }
+  boardEl.replaceChildren(fragment);
+  if (focused != null) {
+    const current = boardEl.querySelector('[data-square="' + focused + '"]:not(:disabled)');
+    (current ?? boardEl.querySelector("button:not(:disabled)") ?? boardEl).focus({ preventScroll: true });
+  }
+  $("status").textContent = {
+    won: "You win", lost: "Jarvis wins", draw: "Draw",
+    playing: turn === YOU ? "Your move" : "Jarvis is thinking…",
+  }[status];
+  $("detail").textContent = status !== "playing" ? ""
+    : hint ? "Try " + hint.path.map(squareName).join(" → ")
+    : path.length > 1 ? "Continue the jump with the same piece."
+    : turn === YOU && legal[0]?.captured.length ? "A capture is required." : "";
+  $("undo").disabled = !path.length && !history.some(entry => entry.turn === YOU);
+  $("hint").disabled = !options.length || path.length > 1;
+}
+
+function coordinate(text) {
+  const label = document.createElement("span");
+  label.className = "coord";
+  label.setAttribute("aria-hidden", "true");
+  label.textContent = text;
+  return label;
+}
+
+function clickSquare(square) {
+  if (status !== "playing" || turn !== YOU) return;
+  clearHint();
+  const next = [...path, square];
+  const matching = path.length ? legal.filter(move => next.every((step, i) => move.path[i] === step)) : [];
+  if (matching.length) {
+    const complete = matching.find(move => move.path.length === next.length);
+    if (complete) commit(complete);
+    else {
+      path = next;
+      render();
+    }
+    return;
+  }
+  if (path.length <= 1) {
+    path = path[0] !== square && legal.some(move => move.path[0] === square) ? [square] : [];
+    render();
+  }
+}
+
+function commit(move) {
+  revision++;
+  history.push({ board, turn, quiet, text: move.path.map(squareName).join(" ") });
+  quiet = move.captured.length || Math.abs(board[move.path[0]]) === 1 ? 0 : quiet + 1;
+  board = playMove(board, move);
+  turn = -turn;
+  path = [];
+  clearHint();
+  refresh();
+  if (status === "playing" && turn === JARVIS) ask("move");
+}
+
+function undo() {
+  revision++;
+  clearHint();
+  if (path.length) {
+    path = [];
+    render();
+    return;
+  }
+  const index = history.findLastIndex(entry => entry.turn === YOU);
+  if (index < 0) return;
+  ({ board, turn, quiet } = history[index]);
+  history.length = index;
+  refresh();
+}
+
+function applyCommand(text) {
+  if (status !== "playing") return "Start a new game to make a move.";
+  if (turn !== YOU) return "Wait for Jarvis to finish his move.";
+  const requested = parsePath(text);
+  if (!requested) return "Say two squares, like c3 to d4, or every landing square for a multi-jump.";
+  const move = legal.find(candidate => samePath(candidate.path, requested));
+  if (!move) return legal[0]?.captured.length ? "Choose a legal capture and include every landing square." : "That move is not legal.";
+  commit(move);
+  return null;
+}
+
+function ask(kind) {
+  if (status !== "playing" || (kind === "hint" && (turn !== YOU || path.length > 1))) return;
+  worker.postMessage({ revision, kind, board, turn, level: kind === "hint" ? 4 : Number(level.value) });
+}
+
+function onWorkerReply({ data }) {
+  if (data.revision !== revision || !data.move) return;
+  const move = legal.find(candidate => samePath(candidate.path, data.move.path));
+  if (!move) return;
+  if (data.kind === "move" && turn === JARVIS) commit(move);
+  if (data.kind === "hint" && turn === YOU && path.length <= 1) {
+    hint = move;
+    render();
+  }
+}
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const level = $("level");
+const initialLevel = Number(params.get("level"));
+if (Number.isInteger(initialLevel) && initialLevel >= 1 && initialLevel <= 5) level.value = String(initialLevel);
+const boardEl = $("board");
+const worker = new Worker("./checkers-worker.js", { type: "module" });
+worker.onmessage = onWorkerReply;
+let revision = 0;
+let lastCommand = null;
+let reportQueue = Promise.resolve();
+
+function report() {
+  const body = JSON.stringify({ ...state(), level: level.selectedOptions[0].text, lastCommand });
+  reportQueue = reportQueue.then(() => fetch("./state", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(3000),
+  })).catch(() => {});
+  return reportQueue;
+}
+
+async function pollCommand() {
+  try {
+    const response = await fetch("./command", { signal: AbortSignal.timeout(3000) });
+    if (response.status === 200) {
+      const { id, text } = await response.json();
+      const error = applyCommand(text);
+      lastCommand = error ? { id, text, ok: false, error } : { id, text, ok: true };
+      if (error) $("detail").textContent = error;
+      await report();
+    }
+  } catch {
+    // The local server may be closing. Retry while this page stays open.
+  } finally {
+    setTimeout(pollCommand, 600);
+  }
+}
+
+level.addEventListener("change", () => {
+  revision++;
+  clearHint();
+  refresh();
+  if (state().turn === "jarvis" && !state().over) ask("move");
+});
+$("new").addEventListener("click", start);
+$("undo").addEventListener("click", undo);
+$("hint").addEventListener("click", () => ask("hint"));
+start();
+pollCommand();
+</script>
+</body>
+</html>

@@ -85,9 +85,14 @@ there are imported on first start.
   extension folder open and the folder path is copied, so you just switch on Developer mode, choose Load unpacked,
   paste, and enter the pairing code shown in Settings. He then works in a collapsed "Jarvis" tab group when you ask
   him to use the browser.
-- **Games:** "let's play chess" (or "Connect Four") opens a little page in your browser, served only on your own
-  PC, where you play against him: beginner to expert. Ask him how you're doing, or for a hint, and he can see the
-  position. The chess engine is built on [chess.js](https://github.com/jhlywa/chess.js) (BSD-2).
+- **Games:** "let's play chess" opens a little page in your browser, served only on your own PC, where you play
+  against him from beginner to expert. There's also Connect Four, checkers, dots and boxes and sea battle. Click to
+  move or just say it: "fire at B7", "c3 to d4", "knight f3", "A1 to B1", "column 4". Ask him how you're doing or for
+  a hint and he looks at the position. **Twenty questions** is voice only: he thinks of something and you guess, or
+  the other way round, and he keeps count. The chess rules come from [chess.js](https://github.com/jhlywa/chess.js) (BSD-2).
+- **Finding and opening apps:** he checks everything installed (Start menu, Store apps, installed programs; on
+  Linux, desktop entries, Flatpak and Snap) before saying something isn't there, so "do I have Steam?" or "what games
+  do I have?" work. Say "open Discord in the background" and it starts minimised while your window stays in front.
 - **Holograms inside the orb:** ask him to explain how things are connected, show a timeline, or show a picture, and
   the orb grows into a see-through 3D sphere of light: a web of nodes floating inside it, a timeline ring around
   its centre, or the picture projected inside. Drag to spin it (scroll turns the timeline), click a node to bring it

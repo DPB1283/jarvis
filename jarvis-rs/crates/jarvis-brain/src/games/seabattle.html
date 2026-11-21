@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea battle against Jarvis</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#2a313c; --text:#e6edf3; --dim:#8b97a6; --teal:#2dd4bf; --sea:#123047; --sea2:#0f2a3e; --ship:#7b8794; --hit:#ff5f5f; --miss:#9fb3c8; --sunk:#7a1f1f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, "Segoe UI", sans-serif; display:flex; justify-content:center; min-height:100vh; }
+  main { width:min(97vw, 1180px); padding:18px; display:grid; grid-template-columns: 1fr 1fr minmax(230px, 300px); gap:22px; align-items:start; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr 1fr; } aside { grid-column: 1 / -1; } }
+  @media (max-width: 640px) { main { grid-template-columns: 1fr; } }
+  h1 { grid-column:1/-1; margin:0; font-size:20px; font-weight:600; } h1 span { color:var(--teal); }
+  h2 { margin:0 0 8px; font-size:15px; font-weight:600; color:var(--dim); } h2 b { color:var(--text); }
+  /* 11 × 11: a label row and column, then ten equal squares (explicit rows so every square stays square). */
+  .sea { display:grid; grid-template-columns: repeat(11, 1fr); grid-template-rows: repeat(11, 1fr); aspect-ratio: 1; gap:2px; user-select:none; container-type: inline-size; }
+  .sea div { display:flex; align-items:center; justify-content:center; min-width:0; min-height:0; border-radius:3px; font-size:3.4cqw; }
+  .sea .lab { color:var(--dim); font-weight:600; }
+  .sea .sq { background:var(--sea); position:relative; }
+  .sea .sq:nth-child(even) { background:var(--sea2); }
+  .sea .sq.ship { background:var(--ship); }
+  .sea .sq.miss::after { content:""; width:28%; height:28%; border-radius:50%; background:var(--miss); opacity:.8; }
+  .sea .sq.hit { background:var(--hit); } .sea .sq.hit::after { content:"✕"; color:#2a0b0b; font-weight:700; font-size:5cqw; }
+  .sea .sq.sunk { background:var(--sunk); } .sea .sq.sunk::after { content:"✕"; color:#ffb4b4; font-weight:700; font-size:5cqw; }
+  .sea .sq.last { outline:3px solid #fff; outline-offset:-3px; z-index:1; }
+  .sea .sq.hint { outline:3px dashed var(--teal); outline-offset:-3px; }
+  #target .sq.open { cursor:crosshair; } #target .sq.open:hover { background:#1c4a6b; }
+  aside { display:grid; gap:12px; } .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; } .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  label { color:var(--dim); font-size:13px; } select, button { background:#202733; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 10px; font:inherit; cursor:pointer; }
+  button:hover:not(:disabled), select:hover { border-color:var(--teal); } button:disabled { opacity:.45; cursor:default; } button.primary { background:var(--teal); color:#04201c; border-color:var(--teal); font-weight:600; }
+  #status { font-size:17px; min-height:26px; } #status.over { color:var(--teal); font-weight:600; } #status.bad { color:var(--hit); }
+  .fleet { display:grid; gap:3px; font-size:13px; } .fleet .gone { text-decoration:line-through; color:var(--dim); }
+  #log { max-height:210px; overflow:auto; font-size:13px; display:grid; gap:2px; } #log .j { color:var(--dim); }
+  small { color:var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sea battle against <span>Jarvis</span></h1>
+  <section><h2><b>Jarvis's waters</b>: click to fire, or say "fire at B7"</h2><div id="target" class="sea" aria-label="Jarvis's waters"></div></section>
+  <section><h2><b>Your fleet</b></h2><div id="home" class="sea" aria-label="Your fleet"></div></section>
+  <aside>
+    <div class="panel"><div id="status" role="status">Loading…</div></div>
+    <div class="panel row">
+      <label>Difficulty <select id="level">
+        <option value="1">Beginner</option><option value="2">Easy</option><option value="3" selected>Medium</option><option value="4">Hard</option><option value="5">Expert</option>
+      </select></label>
+      <button class="primary" id="new">New game</button>
+      <button id="shuffle">Shuffle my fleet</button>
+      <button id="hint">Hint</button>
+    </div>
+    <div class="panel row" style="align-items:start; gap:22px">
+      <div class="fleet" id="mine"><b>Your ships</b></div>
+      <div class="fleet" id="his"><b>His ships</b></div>
+    </div>
+    <div class="panel"><div id="log" aria-live="polite"></div><small>One shot each per turn. Sink all five ships to win.</small></div>
+  </aside>
+</main>
+<script type="module">
+import { SIZE, FLEET, COLUMNS, randomFleet, emptyView, fire, afloat, chooseShot, parseShot, label, hint } from "./seabattle-engine.js";
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const NAMES = { 1: "Beginner", 2: "Easy", 3: "Medium", 4: "Hard", 5: "Expert" };
+$("level").value = String(Math.min(5, Math.max(1, Number(params.get("level")) || 3)));
+
+let mine, his, myView, hisView, turn, over, shots, log, lastMine, lastHis, hintSquare, lastCommand;
+
+function build(sea) {
+  sea.replaceChildren();
+  sea.append(Object.assign(document.createElement("div"), { className: "lab" }));
+  for (let c = 0; c < SIZE; c++) sea.append(Object.assign(document.createElement("div"), { className: "lab", textContent: COLUMNS[c] }));
+  for (let r = 0; r < SIZE; r++) {
+    sea.append(Object.assign(document.createElement("div"), { className: "lab", textContent: String(r + 1) }));
+    for (let c = 0; c < SIZE; c++) {
+      const sq = Object.assign(document.createElement("div"), { className: "sq" });
+      sq.dataset.r = r; sq.dataset.c = c;
+      sq.setAttribute("aria-label", COLUMNS[c] + (r + 1));
+      sea.append(sq);
+    }
+  }
+}
+build($("target")); build($("home"));
+const square = (sea, r, c) => sea.querySelector(`.sq[data-r="${r}"][data-c="${c}"]`);
+
+function newGame() {
+  mine = randomFleet(); his = randomFleet();
+  myView = emptyView(); hisView = emptyView();
+  turn = "you"; over = false; shots = 0; log = []; lastMine = lastHis = hintSquare = null;
+  say("Your shot. Click a square in Jarvis's waters, or say \"fire at B7\".");
+  render(); report();
+}
+
+function say(text, kind = "") { $("status").textContent = text; $("status").className = kind; }
+function note(text, jarvis) { log.unshift({ text, jarvis }); log = log.slice(0, 40); }
+
+function render() {
+  const shipAt = (ships, r, c) => ships.some(s => s.cells.some(p => p.r === r && p.c === c));
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const t = square($("target"), r, c), h = square($("home"), r, c);
+    t.className = "sq" + (hisView[r][c] ? " " + hisView[r][c] : !over && turn === "you" ? " open" : "")
+      + (lastHis && lastHis.r === r && lastHis.c === c ? " last" : "") + (hintSquare && hintSquare.r === r && hintSquare.c === c ? " hint" : "");
+    // Once the game is over, show where his ships were.
+    if (over && !hisView[r][c] && shipAt(his, r, c)) t.className += " ship";
+    h.className = "sq" + (shipAt(mine, r, c) ? " ship" : "") + (myView[r][c] ? " " + myView[r][c] : "") + (lastMine && lastMine.r === r && lastMine.c === c ? " last" : "");
+  }
+  const list = (el, title, ships) => { el.replaceChildren(Object.assign(document.createElement("b"), { textContent: title })); for (const s of ships) el.append(Object.assign(document.createElement("span"), { textContent: `${s.name} (${s.length})`, className: s.hits >= s.length ? "gone" : "" })); };
+  list($("mine"), "Your ships", mine); list($("his"), "His ships", his);
+  $("log").replaceChildren(...log.map(l => Object.assign(document.createElement("div"), { textContent: l.text, className: l.jarvis ? "j" : "" })));
+  $("shuffle").disabled = shots > 0 || over;
+  $("hint").disabled = over || turn !== "you";
+}
+
+const words = { miss: "Miss", hit: "Hit", sunk: "Sunk" };
+
+function playerShot(r, c) {
+  if (over) return { ok: false, error: "The game is over. Press New game to play again." };
+  if (turn !== "you") return { ok: false, error: "It's Jarvis's turn." };
+  const shot = fire(his, hisView, r, c);
+  if (shot.result === "repeat") return { ok: false, error: `${label({ r, c })} has already been fired at.` };
+  shots++; lastHis = { r, c }; hintSquare = null;
+  note(`You: ${label({ r, c })}, ${words[shot.result].toLowerCase()}${shot.result === "sunk" ? ` (his ${shot.ship})` : ""}.`, false);
+  if (shot.allSunk) {
+    over = true; say(`You sank his whole fleet in ${shots} shots. You win!`, "over");
+  } else {
+    turn = "jarvis";
+    say(shot.result === "miss" ? `${label({ r, c })}: miss. Jarvis is aiming…` : shot.result === "sunk" ? `${label({ r, c })}: you sank his ${shot.ship}! Jarvis is aiming…` : `${label({ r, c })}: hit! Jarvis is aiming…`);
+    setTimeout(jarvisShot, 650);
+  }
+  render(); report();
+  return { ok: true, result: shot.result, ship: shot.ship };
+}
+
+function jarvisShot() {
+  if (over) return;
+  const s = chooseShot(myView, afloat(mine), Number($("level").value));
+  const shot = fire(mine, myView, s.r, s.c);
+  lastMine = s;
+  note(`Jarvis: ${label(s)}, ${words[shot.result].toLowerCase()}${shot.result === "sunk" ? ` (your ${shot.ship})` : ""}.`, true);
+  if (shot.allSunk) { over = true; say("Jarvis sank your whole fleet. He wins this one.", "bad"); }
+  else {
+    turn = "you";
+    say(shot.result === "miss" ? `Jarvis fired at ${label(s)} and missed. Your shot.` : shot.result === "sunk" ? `Jarvis sank your ${shot.ship} at ${label(s)}. Your shot.` : `Jarvis hit you at ${label(s)}. Your shot.`, shot.result === "miss" ? "" : "bad");
+  }
+  render(); report();
+}
+
+function report() {
+  // What Jarvis may know: his own shots at you, and only what you have found of his fleet.
+  const grid = (view, ships, showShips) => view.map((row, r) => row.map((v, c) => v === "hit" ? "X" : v === "sunk" ? "#" : v === "miss" ? "o" : showShips && ships.some(s => s.cells.some(p => p.r === r && p.c === c)) ? "S" : ".").join(""));
+  const state = {
+    game: "sea_battle", level: NAMES[$("level").value], turn, over,
+    status: over ? (his.every(s => s.hits >= s.length) ? "won" : "lost") : "playing",
+    yourShots: shots, legend: "rows 1-10 top to bottom, columns A-J; X hit, # sunk, o miss, S your ship, . unknown/water",
+    jarvisWaters: grid(hisView, his, false), yourFleet: grid(myView, mine, true),
+    shipsLeft: { you: mine.filter(s => s.hits < s.length).map(s => s.name), jarvis: his.filter(s => s.hits < s.length).map(s => s.name) },
+    lastShots: log.slice(0, 6).map(l => l.text), lastCommand,
+  };
+  fetch("./state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) }).catch(() => {});
+}
+
+$("target").addEventListener("click", event => {
+  const sq = event.target.closest(".sq");
+  if (sq) playerShot(Number(sq.dataset.r), Number(sq.dataset.c));
+});
+$("new").addEventListener("click", newGame);
+$("shuffle").addEventListener("click", () => { if (shots === 0) { mine = randomFleet(); render(); report(); } });
+$("hint").addEventListener("click", () => { if (!over && turn === "you") { hintSquare = hint(hisView, afloat(his)); say(`Try ${label(hintSquare)}.`); render(); } });
+$("level").addEventListener("change", report);
+
+// Moves said out loud reach the page through the local server.
+async function poll() {
+  try {
+    const response = await fetch("./command", { cache: "no-store" });
+    if (response.status === 200) {
+      const { id, text } = await response.json();
+      const target = parseShot(text);
+      const outcome = /\b(new game|restart|start over)\b/.test(text) ? (newGame(), { ok: true })
+        : /\bhint\b/.test(text) ? ($("hint").click(), { ok: true })
+        : target ? playerShot(target.r, target.c)
+        : { ok: false, error: `I couldn't find a square in "${text}". Say a column A to J and a row 1 to 10, like B7.` };
+      lastCommand = { id, text, ok: outcome.ok, ...(outcome.ok ? {} : { error: outcome.error }), ...(outcome.result ? { result: outcome.result, ship: outcome.ship } : {}) };
+      if (!outcome.ok) say(outcome.error, "bad");
+      report();
+    }
+  } catch {}
+  setTimeout(poll, 600);
+}
+
+newGame();
+poll();
+</script>
+</body>
+</html>

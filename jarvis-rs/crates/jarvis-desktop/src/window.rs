@@ -187,6 +187,62 @@ pub fn find(query: &str) -> Option<Found> {
     })
 }
 
+/// Visible, titled top-level windows as (window handle, process id), front to back. Used to spot the window a
+/// newly launched app opens.
+pub fn top_level() -> Vec<(usize, u32)> {
+    use windows::Win32::Foundation::LPARAM;
+    use windows::core::BOOL;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextLengthW, IsWindowVisible};
+
+    unsafe extern "system" fn visit(window: HWND, data: LPARAM) -> BOOL {
+        let found = unsafe { &mut *(data.0 as *mut Vec<(usize, u32)>) };
+        unsafe {
+            if IsWindowVisible(window).as_bool() && GetWindowTextLengthW(window) > 0 && !DESKTOP_CLASSES.contains(&class_name(window).as_str()) {
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(window, Some(&mut pid));
+                found.push((window.0 as usize, pid));
+            }
+        }
+        true.into()
+    }
+    let mut found = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(visit), LPARAM(&mut found as *mut Vec<(usize, u32)> as isize));
+    }
+    found
+}
+
+/// Minimise a window. Windows then activates the window behind it, usually the one the user was using.
+pub fn minimize(hwnd: usize) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{SW_MINIMIZE, ShowWindow};
+    unsafe { ShowWindow(HWND(hwnd as *mut _), SW_MINIMIZE).as_bool() }
+}
+
+/// Give the keyboard focus back to a window the user was using. Windows only lets the process that owns the
+/// foreground hand it over, so attach to that thread's input for the call.
+pub fn give_focus(hwnd: usize) -> bool {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow, SW_RESTORE, SetForegroundWindow, ShowWindow};
+    unsafe {
+        let window = HWND(hwnd as *mut _);
+        if !IsWindow(Some(window)).as_bool() {
+            return false;
+        }
+        if IsIconic(window).as_bool() {
+            let _ = ShowWindow(window, SW_RESTORE);
+        }
+        let front = GetForegroundWindow();
+        let front_thread = GetWindowThreadProcessId(front, None);
+        let me = GetCurrentThreadId();
+        let attached = front_thread != 0 && front_thread != me && AttachThreadInput(me, front_thread, true).as_bool();
+        let ok = SetForegroundWindow(window).as_bool();
+        if attached {
+            let _ = AttachThreadInput(me, front_thread, false);
+        }
+        ok
+    }
+}
+
 #[cfg(test)]
 mod find_tests {
     #[test]

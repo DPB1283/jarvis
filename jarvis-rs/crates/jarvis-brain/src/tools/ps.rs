@@ -19,6 +19,13 @@ pub struct PsResult {
 }
 
 pub async fn run_ps(script: &str, timeout: Duration) -> PsResult {
+    run_ps_env(script, &[], timeout).await
+}
+
+/// Like `run_ps`, with extra environment variables: the safe way to hand a script text that the user or model chose
+/// (the script reads it with $env:NAME) instead of pasting it into the script.
+/// (read it with ``) instead of pasting it into the script.
+pub async fn run_ps_env(script: &str, env: &[(&str, &str)], timeout: Duration) -> PsResult {
     if cfg!(not(windows)) {
         return PsResult {
             stdout: String::new(),
@@ -32,6 +39,7 @@ pub async fn run_ps(script: &str, timeout: Duration) -> PsResult {
     let mut temp: Option<std::path::PathBuf> = None;
     let mut cmd = tokio::process::Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"]);
+    cmd.envs(env.iter().copied());
     if encoded.len() < 30_000 {
         cmd.args(["-EncodedCommand", &encoded]);
     } else {

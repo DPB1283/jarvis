@@ -82,11 +82,32 @@ pub fn tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "open_app",
-            description: "Open an application, file, folder, URL or ms-settings: page. Accepts an app name as it appears in the Start menu (e.g. 'Notepad', 'Apple Music', 'Discord'), an exe name, a path, or a URL.",
-            schema: || json!({"type":"object","properties":{"target":{"type":"string","description":"App name, exe, path, folder, URL or ms-settings: URI"},"args":{"type":"string","description":"Optional command-line arguments"}},"required":["target"]}),
+            description: "Open an application, file, folder, URL or ms-settings: page. Accepts an app name as it appears in the Start menu (e.g. 'Notepad', 'Apple Music', 'Discord'), an exe name, a path, or a URL. Also finds apps that are only in the installed-programs list. If it can't find one, call find_apps to see what is installed and use the 'how to open' value it gives.",
+            schema: || json!({"type":"object","properties":{"target":{"type":"string","description":"App name, exe, path, folder, URL or ms-settings: URI"},"args":{"type":"string","description":"Optional command-line arguments"},"background":{"type":"boolean","description":"Open it without bringing it to the front: it starts minimised and whatever the user was using stays in front"}},"required":["target"]}),
             risk: safe,
-            summary: |i| format!("open {}", s(i, "target").unwrap_or("?")),
-            run: |_ctx, i| Box::pin(async move { open_app(s(&i, "target").unwrap_or(""), s(&i, "args")).await.map(Into::into) }),
+            summary: |i| format!("open {}{}", s(i, "target").unwrap_or("?"), if b(i, "background") == Some(true) { " in the background" } else { "" }),
+            run: |_ctx, i| {
+                Box::pin(async move {
+                    let background = b(&i, "background") == Some(true);
+                    #[cfg(windows)]
+                    let watch = background.then(BackgroundLaunch::start);
+                    let result = open_app_with(s(&i, "target").unwrap_or(""), s(&i, "args"), background).await?;
+                    #[cfg(windows)]
+                    if let Some(watch) = watch.filter(|_| result.starts_with("Opened")) {
+                        watch.keep_out_of_the_way();
+                        return Ok(format!("{result} in the background (minimised; the user's window stays in front).").into());
+                    }
+                    Ok(result.into())
+                })
+            },
+        },
+        ToolDef {
+            name: "find_apps",
+            description: "List or search the apps installed on this PC: Start menu shortcuts, Store apps, the installed-programs list (Settings > Apps), registered app paths and running programs. Use it when unsure whether something is installed (\"do I have Steam?\"), when open_app can't find an app, or to answer \"what games/apps do I have\". Each line is: name | how to open (pass it to open_app as target) | where it was found.",
+            schema: || json!({"type":"object","properties":{"query":{"type":"string","description":"Part of the app's name; omit to list everything"},"limit":{"type":"integer","minimum":1,"maximum":300}}}),
+            risk: safe,
+            summary: |i| match s(i, "query") { Some(q) => format!("look for {q} on this PC"), None => "list the installed apps".into() },
+            run: |_ctx, i| Box::pin(async move { find_apps(s(&i, "query").unwrap_or(""), n(&i, "limit").map(|l| l.clamp(1.0, 300.0) as usize).unwrap_or(80)).await.map(Into::into) }),
         },
         ToolDef {
             name: "open_url",
@@ -431,25 +452,95 @@ fn copy_recursive(src: &Path, dst: &Path) -> Result<()> {
 }
 
 pub(super) async fn open_app(target: &str, args: Option<&str>) -> Result<String> {
+    open_app_with(target, args, false).await
+}
+
+/// Where Windows records installed apps, searched in this order (first match wins): Start menu shortcuts, Store and
+/// Start apps, the installed-programs list, registered app paths, and (with a query) running programs. Prints
+/// "name<TAB>how to open<TAB>source" lines.
+const FIND_APPS: &str = r#"
+$q = $env:JARVIS_APP_QUERY
+function Emit($name, $open, $src) {
+  if (-not $name -or -not $open) { return }
+  if ($q -and $name -notlike "*$q*" -and (Split-Path $open -Leaf) -notlike "*$q*") { return }
+  "$name`t$open`t$src"
+}
+$dirs = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")
+Get-ChildItem $dirs -Recurse -Include *.lnk,*.url -ErrorAction SilentlyContinue |
+  Where-Object { $_.BaseName -notmatch '(?i)uninstall|readme|help|manual|website|release notes' } |
+  ForEach-Object { Emit $_.BaseName $_.FullName 'Start menu' }
+try { Get-StartApps | ForEach-Object { Emit $_.Name "shell:AppsFolder\$($_.AppID)" 'Start apps' } } catch {}
+$keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -and -not $_.SystemComponent -and -not $_.ParentKeyName } | ForEach-Object {
+  $exe = if ($_.DisplayIcon) { ($_.DisplayIcon -split ',')[0].Trim().Trim('"') } else { '' }
+  if ($exe -notlike '*.exe' -or $exe -match '(?i)unins|setup|install' -or -not (Test-Path -LiteralPath $exe)) { $exe = '' }
+  if (-not $exe -and $_.InstallLocation -and (Test-Path -LiteralPath $_.InstallLocation)) { $exe = $_.InstallLocation.Trim('"') }
+  Emit $_.DisplayName $exe 'Installed programs'
+}
+foreach ($root in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths') {
+  Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
+    $path = $_.GetValue('')
+    if ($path) { Emit ($_.PSChildName -replace '\.exe$', '') $path.Trim('"') 'App paths' }
+  }
+}
+if ($q) { Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.MainWindowTitle } | ForEach-Object { Emit $_.ProcessName $_.Path 'Running now' } }
+"#;
+
+/// One app per name (the first source wins), sorted, as "name | how to open | source" lines.
+pub(crate) fn tidy_app_list(raw: &str, limit: usize) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut apps: Vec<(String, String, String)> = raw
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let (name, open, source) = (parts.next()?.trim(), parts.next()?.trim(), parts.next()?.trim());
+            (!name.is_empty() && !open.is_empty()).then(|| (name.to_owned(), open.to_owned(), source.to_owned()))
+        })
+        .filter(|(name, _, _)| seen.insert(name.to_lowercase()))
+        .collect();
+    apps.sort_by_key(|(name, _, _)| name.to_lowercase());
+    apps.into_iter().take(limit).map(|(name, open, source)| format!("{name} | {open} | {source}")).collect()
+}
+
+async fn find_apps(query: &str, limit: usize) -> Result<String> {
+    let query = query.trim().trim_end_matches(".exe");
+    // The query goes in through the environment, never pasted into the script.
+    let out = super::ps::run_ps_env(FIND_APPS, &[("JARVIS_APP_QUERY", query)], Duration::from_secs(45)).await;
+    let apps = tidy_app_list(&out.stdout, limit);
+    Ok(if apps.is_empty() {
+        if query.is_empty() { "Could not read the list of installed apps.".into() } else { format!("Nothing called \"{query}\" seems to be installed (searched the Start menu, Store apps, installed programs, app paths and running programs).") }
+    } else {
+        format!("{} app(s){}:\n{}", apps.len(), if query.is_empty() { String::new() } else { format!(" matching \"{query}\"") }, apps.join("\n"))
+    })
+}
+
+/// `background` starts the app minimised (the watcher below then keeps it out of the way).
+pub(super) async fn open_app_with(target: &str, args: Option<&str>, background: bool) -> Result<String> {
     let t = target.trim();
     let is_uri = t.contains(':') && !t.chars().nth(1).is_some_and(|c| c == ':') && t.split(':').next().is_some_and(|s| s.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c)));
     let arg_part = args.map(|a| format!(" -ArgumentList {}", psq(a))).unwrap_or_default();
+    let style = if background { " -WindowStyle Minimized" } else { "" };
     if is_uri || resolve_path(t).exists() {
         let what = if is_uri { t.to_string() } else { resolve_path(t).display().to_string() };
-        ps(&format!("Start-Process {}{arg_part}", psq(&what))).await?;
+        ps(&format!("Start-Process {}{arg_part}{style}", psq(&what))).await?;
         return Ok(format!("Opened {t}"));
     }
-    // A command / App Paths name, then Start-menu shortcuts, then Store apps.
+    // A command / App Paths name, then Start-menu shortcuts, then Store apps, then the installed-programs list.
     let r = run_ps(
         &format!(
             r#"$name = {name}
-            try {{ Start-Process $name{arg_part} -ErrorAction Stop; "started:$name"; exit 0 }} catch {{}}
+            try {{ Start-Process $name{arg_part}{style} -ErrorAction Stop; "started:$name"; exit 0 }} catch {{}}
             $dirs = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")
             $lnk = Get-ChildItem $dirs -Recurse -Include *.lnk,*.url -ErrorAction SilentlyContinue |
-              Where-Object {{ $_.BaseName -like "*$name*" }} | Sort-Object {{ $_.BaseName.Length }} | Select-Object -First 1
-            if ($lnk) {{ Start-Process $lnk.FullName{arg_part}; "shortcut:$($lnk.BaseName)"; exit 0 }}
+              Where-Object {{ $_.BaseName -like "*$name*" -and $_.BaseName -notmatch '(?i)uninstall' }} | Sort-Object {{ $_.BaseName.Length }} | Select-Object -First 1
+            if ($lnk) {{ Start-Process $lnk.FullName{arg_part}{style}; "shortcut:$($lnk.BaseName)"; exit 0 }}
             $app = Get-StartApps | Where-Object {{ $_.Name -like "*$name*" }} | Sort-Object {{ $_.Name.Length }} | Select-Object -First 1
             if ($app) {{ Start-Process "shell:AppsFolder\$($app.AppID)"; "store:$($app.Name)"; exit 0 }}
+            $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            $prog = Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object {{ $_.DisplayName -like "*$name*" -and $_.DisplayIcon }} |
+              ForEach-Object {{ $e = ($_.DisplayIcon -split ',')[0].Trim().Trim('"'); if ($e -like '*.exe' -and $e -notmatch '(?i)unins|setup' -and (Test-Path -LiteralPath $e)) {{ [pscustomobject]@{{ Name = $_.DisplayName; Exe = $e }} }} }} |
+              Sort-Object {{ $_.Name.Length }} | Select-Object -First 1
+            if ($prog) {{ Start-Process $prog.Exe{arg_part}{style}; "installed:$($prog.Name)"; exit 0 }}
             "notfound"; exit 1"#,
             name = psq(t)
         ),
@@ -457,11 +548,54 @@ pub(super) async fn open_app(target: &str, args: Option<&str>) -> Result<String>
     )
     .await;
     if r.code != Some(0) {
-        return Ok(format!("Could not find an app called \"{t}\"."));
+        return Ok(format!("Could not find an app called \"{t}\". Use find_apps to look for it under another name."));
     }
-    Ok(format!("Opened {}", r.stdout.split_once(':').map(|(_, n)| n).unwrap_or(t)))
+    Ok(format!("Opened {}", r.stdout.trim().split_once(':').map(|(_, n)| n).unwrap_or(t)))
 }
 
+/// Keeps a just-launched app from taking over the screen: any window that appears in the next few seconds is
+/// minimised, and the window the user was using gets the focus back.
+#[cfg(windows)]
+struct BackgroundLaunch {
+    front: usize,
+    before: std::collections::HashSet<usize>,
+}
+
+#[cfg(windows)]
+impl BackgroundLaunch {
+    fn start() -> Self {
+        use jarvis_desktop::window;
+        Self { front: window::foreground().hwnd, before: window::top_level().into_iter().map(|(h, _)| h).collect() }
+    }
+
+    fn keep_out_of_the_way(self) {
+        use jarvis_desktop::window;
+        tokio::spawn(async move {
+            let me = std::process::id();
+            let mut handled = std::collections::HashSet::new();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            while tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let fresh: Vec<usize> = window::top_level()
+                    .into_iter()
+                    .filter(|(h, pid)| *pid != me && !self.before.contains(h) && !handled.contains(h))
+                    .map(|(h, _)| h)
+                    .collect();
+                for hwnd in fresh {
+                    handled.insert(hwnd);
+                    window::minimize(hwnd);
+                }
+                // Only take the focus back from a window this launch opened, never from one the user picked.
+                if handled.contains(&window::foreground().hwnd) || window::foreground().hwnd == 0 {
+                    window::give_focus(self.front);
+                }
+            }
+            if handled.contains(&window::foreground().hwnd) {
+                window::give_focus(self.front);
+            }
+        });
+    }
+}
 /// For tools that want to send plain text built from JSON.
 pub fn _unused(_: Value) -> ToolOutput {
     ToolOutput::Text(String::new())
@@ -470,6 +604,45 @@ pub fn _unused(_: Value) -> ToolOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_lists_are_deduped_sorted_and_capped() {
+        let raw = "Steam\tC:\\Steam\\steam.exe\tStart menu\nsteam\tC:\\other\\steam.exe\tInstalled programs\nDiscord\tC:\\d.lnk\tStart menu\n\tC:\\nameless.exe\tApp paths\nBroken line\n7-Zip\tC:\\7z.exe\tInstalled programs";
+        let apps = tidy_app_list(raw, 10);
+        assert_eq!(apps, vec!["7-Zip | C:\\7z.exe | Installed programs", "Discord | C:\\d.lnk | Start menu", "Steam | C:\\Steam\\steam.exe | Start menu"]);
+        assert_eq!(tidy_app_list(raw, 1).len(), 1);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "reads this PC's installed apps"]
+    async fn finds_installed_apps_live() {
+        let all = find_apps("", 300).await.unwrap();
+        println!("{}", all.lines().take(12).collect::<Vec<_>>().join("\n"));
+        assert!(all.lines().count() > 10, "{all}");
+        let steam = find_apps("steam", 20).await.unwrap();
+        println!("{steam}");
+        assert!(steam.to_lowercase().contains("steam |"), "{steam}");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "opens and closes Character Map on this PC"]
+    async fn opens_an_app_in_the_background_live() {
+        use jarvis_desktop::window;
+        let front = window::foreground();
+        let watch = BackgroundLaunch::start();
+        let result = open_app_with("charmap", None, true).await.unwrap();
+        assert!(result.starts_with("Opened"), "{result}");
+        watch.keep_out_of_the_way();
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let after = window::foreground();
+        let charmap = window::find("Character Map");
+        println!("front before: {} ({}), after: {} ({}), charmap visible: {:?}", front.title, front.exe, after.title, after.exe, charmap.as_ref().map(|f| &f.title));
+        let _ = std::process::Command::new("taskkill").args(["/IM", "charmap.exe", "/F"]).output();
+        assert!(!after.exe.eq_ignore_ascii_case("charmap.exe"), "Character Map must not be in front");
+        assert!(charmap.is_none(), "window::find skips minimised windows, so Character Map should not be found");
+    }
 
     #[cfg(windows)]
     #[test]
