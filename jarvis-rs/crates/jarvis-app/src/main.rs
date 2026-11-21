@@ -49,6 +49,21 @@ fn talk(app: &AppHandle) {
     });
 }
 
+/// Mute or unmute his spoken replies (the same setting as "Mute spoken replies" in Settings).
+fn toggle_mute(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let muted = !state.settings.get().voice.muted;
+    match state.settings.update(&json!({"voice": {"muted": muted}})) {
+        Ok(_) => state.bus.emit(Event::Toast {
+            level: ToastLevel::Info,
+            text: if muted { "Voice muted." } else { "Voice on." }.into(),
+        }),
+        Err(error) => tracing::warn!(%error, "Could not toggle mute"),
+    }
+}
+
 fn open_settings(app: &AppHandle) {
     if let Err(error) = windows::open_settings(app) {
         tracing::warn!(%error, "Could not open the settings window");
@@ -63,6 +78,7 @@ fn hotkeys(app: &AppHandle, state: &AppState, settings: &Settings) {
     for (key, action) in [
         (&settings.hotkeys.talk, talk as fn(&AppHandle)),
         (&settings.hotkeys.settings, open_settings as fn(&AppHandle)),
+        (&settings.hotkeys.mute, toggle_mute as fn(&AppHandle)),
     ] {
         if key.trim().is_empty() {
             continue;
@@ -92,8 +108,9 @@ fn hotkeys(app: &AppHandle, state: &AppState, settings: &Settings) {
 fn tray(app: &AppHandle) -> Result<()> {
     let talk_item = MenuItem::with_id(app, "talk", "Talk to Jarvis", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+    let mute = MenuItem::with_id(app, "mute", "Mute / unmute voice", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Jarvis", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&talk_item, &settings, &quit])?;
+    let menu = Menu::with_items(app, &[&talk_item, &mute, &settings, &quit])?;
     let mut icon = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("Jarvis")
@@ -105,6 +122,7 @@ fn tray(app: &AppHandle) -> Result<()> {
                 match id.as_str() {
                     "talk" => talk(&app),
                     "settings" => open_settings(&app),
+                    "mute" => toggle_mute(&app),
                     "quit" => app.exit(0),
                     _ => {}
                 }

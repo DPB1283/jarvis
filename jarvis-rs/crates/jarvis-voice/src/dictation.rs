@@ -10,14 +10,61 @@ pub enum Utterance {
     Scratch,
     Text(String),
 }
+const FILLERS: [&str; 17] = [
+    "hey jarvis", "jarvis", "hey", "ok", "okay", "please", "can you", "could you", "would you", "will you",
+    "i want you to", "i want to", "i would like to", "i d like to", "lets", "let s", "go ahead and",
+];
+
+/// Drop polite lead-ins ("hey Jarvis, could you please ...") from an already normalised utterance.
+fn strip_fillers(text: &str) -> String {
+    let mut out = text.to_owned();
+    loop {
+        let before = out.len();
+        for filler in FILLERS {
+            if let Some(rest) = out.strip_prefix(filler).filter(|rest| rest.is_empty() || rest.starts_with(' ')) {
+                out = rest.trim_start().to_owned();
+            }
+        }
+        if out.len() == before {
+            return out;
+        }
+    }
+}
+
+/// "start dictation", "start voice typing", "could you begin dictating", "dictate", "type what I say"...
+/// The whole utterance has to be the request, so "what is dictation" or text being dictated never matches.
 pub fn start(text: &str) -> bool {
-    matches!(
-        normal(text).as_str(),
-        "start dictation" | "dictation mode" | "voice type" | "type what i say"
-    )
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static START: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(concat!(
+            r"^(?:(?:start|begin|enable|activate|turn on|switch on|open|launch|use|enter|go into|switch to|resume)",
+            r"(?: the| my| up)?(?: voice)? (?:dictation|dictating|voice typing|voice type|voice input|speech to text|voice to text)(?: mode)?",
+            r"|(?:dictation|dictate|dictating|voice typing|voice type|take dictation|let me dictate|i want to dictate|i will dictate|dictation mode)",
+            r"|type (?:what i say|what i m saying|what i am saying|as i speak|as i talk|for me)",
+            r"|start typing (?:what i say|for me))",
+            r"(?: for me| please| now)?$"
+        ))
+        .unwrap()
+    });
+    START.is_match(&strip_fillers(&normal(text)))
+}
+fn stop(text: &str) -> bool {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static STOP: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(concat!(
+            r"^(?:(?:stop|end|finish|exit|quit|cancel|turn off|disable|leave)(?: the)?(?: voice)? (?:dictation|dictating|typing|voice typing|voice input)(?: mode)?",
+            r"|done typing|done dictating|done dictation|finished dictating|finished typing)",
+            r"(?: please| now)?$"
+        ))
+        .unwrap()
+    });
+    STOP.is_match(&strip_fillers(&normal(text)))
 }
 fn normal(text: &str) -> String {
     text.to_lowercase()
+        .replace(['’'], " ")
         .split(|c: char| !c.is_alphanumeric())
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
@@ -25,10 +72,7 @@ fn normal(text: &str) -> String {
 }
 pub fn parse(text: &str) -> Utterance {
     let clean = normal(text);
-    if matches!(
-        clean.as_str(),
-        "stop dictation" | "stop typing" | "done typing" | "exit dictation"
-    ) {
+    if stop(text) {
         return Utterance::Stop;
     }
     if clean == "scratch that" {
@@ -119,5 +163,30 @@ mod tests {
             panic!()
         };
         assert_eq!(text, "Hello, world. ");
+    }
+
+    #[test]
+    fn natural_ways_to_start_and_stop() {
+        for phrase in [
+            "Start dictation", "Jarvis, start dictation.", "start dictating", "Start voice typing", "Could you please start voice typing?",
+            "Hey Jarvis, can you begin dictation for me", "turn on dictation mode", "enable voice typing", "Voice type", "Dictate",
+            "dictation mode", "I want to dictate", "Let me dictate", "Type for me", "start typing what I say", "Take dictation",
+            "open voice input", "Switch on speech to text", "type what I’m saying",
+        ] {
+            assert!(start(phrase), "should start: {phrase}");
+        }
+        for phrase in [
+            "What is dictation?", "start the timer", "open notepad", "I will dictate a letter to my boss tomorrow",
+            "start typing", "Windows dictation", "stop dictation",
+        ] {
+            assert!(!start(phrase), "must not start: {phrase}");
+        }
+        for phrase in [
+            "stop dictation", "Stop dictating.", "Jarvis stop dictation please", "end voice typing", "turn off dictation mode",
+            "done typing", "Finished dictating", "exit dictation", "stop typing",
+        ] {
+            assert!(matches!(parse(phrase), Utterance::Stop), "should stop: {phrase}");
+        }
+        assert!(!matches!(parse("stop the music"), Utterance::Stop));
     }
 }

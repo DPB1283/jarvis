@@ -2,7 +2,7 @@
 // Persisted to data/settings.json (settings) and data/jarvis.sqlite (memory).
 
 export type SafetyMode = "ask_all" | "ask_unsafe" | "full_access";
-export type ReplyLength = "brief" | "normal";
+export type ReplyLength = "brief" | "middle" | "normal";
 export type CaptionPosition = "below_orb" | "bottom_center";
 export type OrbCorner = "top_right" | "top_left" | "bottom_right" | "bottom_left";
 
@@ -84,6 +84,8 @@ export interface Settings {
     /** Push-to-talk / open text box. Electron accelerator syntax. */
     talk: string;
     settings: string;
+    /** Mute / unmute spoken replies. Rust app. */
+    mute?: string;
   };
   orb: {
     showInCaptures?: boolean;
@@ -130,7 +132,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clips: { app: "auto", hotkey: "" },
   safetyMode: "ask_unsafe",
   wakeWord: { enabled: true, sensitivity: 0.6 },
-  hotkeys: { talk: "Control+Space", settings: "Control+Alt+J" },
+  hotkeys: { talk: "Control+Space", settings: "Control+Alt+J", mute: "Control+Alt+M" },
   orb: { corner: "top_right", position: null, size: 96, opacity: 0.95, showInCaptures: true },
   launchAtStartup: false,
 };

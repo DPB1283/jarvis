@@ -132,7 +132,7 @@ export function mountSettings() {
   userName.autocomplete = "given-name";
   const ultron = input(personality, "Ultron mode", "checkbox");
   const sarcasm = range(personality, "Sarcasm", 0, 10, 1);
-  const reply = select(personality, "Reply length", [["brief", "Brief"], ["normal", "Normal"]]);
+  const reply = select(personality, "Reply length", [["brief", "Brief (one short sentence)"], ["middle", "Middle brief (one or two sentences)"], ["normal", "Normal"]]);
 
   const speech = group("voice", "Speech");
   const voiceOn = input(speech, "Use voice (ElevenLabs). Turn off for text only: no microphone, wake word or spoken replies", "checkbox");
@@ -289,6 +289,7 @@ export function mountSettings() {
   const interruptBySpeaking = input(system, "Cut Jarvis off when I start talking over him", "checkbox");
   const talk = input(system, "Talk hotkey");
   const settingsKey = input(system, "Settings hotkey");
+  const muteKey = input(system, "Mute / unmute voice hotkey");
   const startup = input(system, "Launch at startup", "checkbox");
 
   const gaming = group("controls", "Gaming and PC health");
@@ -356,6 +357,7 @@ export function mountSettings() {
     interruptBySpeaking.checked = value.conversation?.interruptBySpeaking !== false;
     talk.value = value.hotkeys.talk;
     settingsKey.value = value.hotkeys.settings;
+    muteKey.value = value.hotkeys.mute ?? "Control+Alt+M";
     startup.checked = value.launchAtStartup;
     gameMode.value = value.gameMode?.mode ?? DEFAULT_SETTINGS.gameMode.mode;
     health.checked = value.health?.warnings ?? DEFAULT_SETTINGS.health.warnings;
@@ -445,7 +447,7 @@ export function mountSettings() {
         endOfSpeechSeconds: Math.round(endOfSpeech() * 10) / 10,
         interruptBySpeaking: interruptBySpeaking.checked,
       }),
-      hotkeys: changedFields(saved.hotkeys, { talk: talk.value.trim(), settings: settingsKey.value.trim() }),
+      hotkeys: changedFields(saved.hotkeys, { talk: talk.value.trim(), settings: settingsKey.value.trim(), mute: muteKey.value.trim() }),
       orb: changedFields(saved.orb, { corner: corner.value as Settings["orb"]["corner"], position: saved.orb.position, size: orbSize(), opacity: opacity(), showInCaptures: showInCaptures.checked }),
       gameMode: changedFields(saved.gameMode ?? DEFAULT_SETTINGS.gameMode, { mode: gameMode.value as Settings["gameMode"]["mode"] }),
       health: changedFields(saved.health ?? DEFAULT_SETTINGS.health, { warnings: health.checked }),

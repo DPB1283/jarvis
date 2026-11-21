@@ -126,11 +126,22 @@ fn split_combo(combo: &str) -> Vec<&str> {
     parts.push(&combo[start..]);
     parts
 }
+/// Windows voice typing (Win+H) is never opened: Jarvis has his own dictation ("start dictation").
+fn forbid_windows_dictation(keys: &[(u16, bool)]) -> Result<()> {
+    let win = keys.iter().any(|k| k.0 == 0x5b || k.0 == 0x5c);
+    let h = keys.iter().any(|k| k.0 == 0x48);
+    ensure!(
+        !(win && h),
+        "Windows voice typing (Win+H) is blocked. Jarvis has his own dictation: ask the user to say \"start dictation\"."
+    );
+    Ok(())
+}
 pub fn chord(combo: &str) -> Result<()> {
     let keys = split_combo(combo)
         .into_iter()
         .map(parse_key)
         .collect::<Result<Vec<_>>>()?;
+    forbid_windows_dictation(&keys)?;
     let events = keys
         .iter()
         .map(|k| press(*k, false))
@@ -168,6 +179,7 @@ pub fn held(combo: &str) -> Result<Held> {
         .filter(|s| !s.is_empty())
         .map(parse_key)
         .collect::<Result<Vec<_>>>()?;
+    forbid_windows_dictation(&keys)?;
     let mut held = Held(vec![]);
     for k in keys {
         emit(&[press(k, false)])?;
@@ -195,6 +207,13 @@ mod tests {
         assert_eq!(parse_key("enter").unwrap(), (13, false));
         assert!(parse_key("num").is_err());
         assert!(parse_key("num9000").is_err());
+    }
+
+    #[test]
+    fn windows_voice_typing_is_blocked() {
+        assert!(chord("win+h").is_err());
+        assert!(chord("super+H").is_err());
+        assert!(held("win+h").is_err());
     }
 
     #[test]

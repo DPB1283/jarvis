@@ -61,6 +61,7 @@ imported on first start.
 ## Using Jarvis
 
 - **Wake word:** say "Jarvis". **Hotkey:** `Control+Space` opens the text box. Both are changeable in Settings.
+- **Mute:** `Control+Alt+M` (or the tray menu) mutes and unmutes his spoken replies. Rebind it in Settings.
 - **Cut him off:** left-click the orb while he's talking, or just start talking over him.
 - **Voice typing:** say "start dictation" and what you say is typed into the focused window (with spoken
   "comma", "period", "new line", "scratch that"). Say "stop dictation" to finish.

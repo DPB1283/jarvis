@@ -26,6 +26,8 @@ pub enum SafetyMode {
 pub enum ReplyLength {
     #[default]
     Brief,
+    /// One to two short sentences.
+    Middle,
     Normal,
 }
 
@@ -222,10 +224,12 @@ pub struct Hotkeys {
     /// Electron accelerator syntax, e.g. "Control+Space".
     pub talk: String,
     pub settings: String,
+    /// Mute / unmute Jarvis's spoken replies.
+    pub mute: String,
 }
 impl Default for Hotkeys {
     fn default() -> Self {
-        Self { talk: "Control+Space".into(), settings: "Control+Alt+J".into() }
+        Self { talk: "Control+Space".into(), settings: "Control+Alt+J".into(), mute: "Control+Alt+M".into() }
     }
 }
 
@@ -410,5 +414,12 @@ mod tests {
         assert!(s.voice.muted);
         assert_eq!(s.voice.voice_id, "onwK4e9ZLuTAKqWW03F9");
         assert_eq!(s.orb.position, None);
+    }
+
+    #[test]
+    fn old_settings_files_get_the_default_mute_hotkey() {
+        let s: Settings = serde_json::from_str(r#"{"hotkeys":{"talk":"Control+Space","settings":"Control+Alt+J"}}"#).unwrap();
+        assert_eq!(s.hotkeys.mute, "Control+Alt+M");
+        assert_eq!(s.hotkeys.talk, "Control+Space");
     }
 }

@@ -206,7 +206,7 @@ pub fn tools() -> Vec<ToolDef> {
                 "news_region":{"type":"string","minLength":2},"news_sources":{"type":"string","enum":["neutral","all"]},
                 "follow_up_seconds":{"type":"integer","minimum":0,"maximum":300},"end_of_speech_seconds":{"type":"number","minimum":0.4,"maximum":3},
                 "captions":{"type":"boolean"},"voice_muted":{"type":"boolean"},"sarcasm":{"type":"integer","minimum":0,"maximum":10},
-                "reply_length":{"type":"string","enum":["brief","normal"]},"safety_mode":{"type":"string","enum":["ask_all","ask_unsafe","full_access"]},
+                "reply_length":{"type":"string","enum":["brief","middle","normal"]},"safety_mode":{"type":"string","enum":["ask_all","ask_unsafe","full_access"]},
                 "wake_word":{"type":"boolean"}}}),
             // Loosening safety always needs the user's explicit OK (unless already full access).
             risk: |ctx, i| {
