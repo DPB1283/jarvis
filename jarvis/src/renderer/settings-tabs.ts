@@ -8,6 +8,7 @@ export const settingsTabs = [
   { id: "memory", title: "Memory", preference: false },
   { id: "messaging", title: "Messaging", preference: false },
   { id: "api-keys", title: "API keys", preference: false },
+  { id: "browser", title: "Browser", preference: false },
 ] as const;
 
 export type SettingsTab = (typeof settingsTabs)[number]["id"];

@@ -13,6 +13,12 @@
       <button class="orb" id="orb" type="button" aria-label="Talk to Jarvis" data-hit data-state="idle">
         <canvas aria-hidden="true"></canvas>
       </button>
+      <div id="activity" class="activity" role="status" aria-live="polite" hidden>
+        <span class="activity-spinner" aria-hidden="true"></span>
+        <span id="activity-text" class="activity-text"></span>
+        <span id="activity-percent" class="activity-percent" hidden></span>
+        <div class="activity-bar" aria-hidden="true"><div id="activity-fill" class="activity-fill"></div></div>
+      </div>
       <span id="dictation-status" class="dictation-status" hidden>Dictating</span>
       <span id="full-access" class="full-access" hidden>Full access</span>
       <section id="captions" class="captions" aria-live="polite" hidden>

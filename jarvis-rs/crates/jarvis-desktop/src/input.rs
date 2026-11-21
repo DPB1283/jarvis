@@ -271,55 +271,80 @@ pub fn scroll(dir: &str, steps: i32) -> Result<()> {
     mouse_event(flags, sign * 120 * steps)
 }
 
-/// Send mouse messages to the window under Jarvis's virtual pointer.
+/// Where the user's real cursor was before Jarvis borrowed it for a click or drag.
+static RESTORE: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+
+fn borrow_cursor(x: i32, y: i32) {
+    let mut saved = RESTORE.lock().unwrap();
+    if saved.is_none() {
+        *saved = Some(crate::monitors::cursor());
+    }
+    crate::monitors::set_cursor(x, y);
+}
+
+fn return_cursor() {
+    if let Some((x, y)) = RESTORE.lock().unwrap().take() {
+        crate::monitors::set_cursor(x, y);
+    }
+}
+
+/// Click, drag or scroll at a screen point as Jarvis's virtual pointer.
+///
+/// Posting window messages to the window under the point looked like a separate mouse, but most modern apps
+/// (Chrome, Electron, Store apps) ignore posted mouse messages and the click never focuses them, so typing
+/// then goes nowhere. This sends real input instead: the cursor jumps to the point for the click and goes
+/// straight back to where the user had it when the press is released. The on-screen Jarvis pointer is drawn
+/// separately by the app.
 pub fn virtual_mouse(x: i32, y: i32, message: &str, modifiers: &str) -> Result<()> {
-    use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
-    use windows::Win32::Graphics::Gdi::ScreenToClient;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        CWP_SKIPDISABLED, CWP_SKIPINVISIBLE, ChildWindowFromPointEx, PostMessageW, WM_LBUTTONDOWN,
-        WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-        WM_RBUTTONDOWN, WM_RBUTTONUP, WindowFromPoint,
+    // Modifiers (ctrl/shift/alt) are held only around this one event.
+    let _held = if modifiers.trim().is_empty() {
+        None
+    } else {
+        let combo = modifiers
+            .to_ascii_lowercase()
+            .split(['+', ' ', ','])
+            .filter(|k| matches!(*k, "ctrl" | "control" | "shift" | "alt"))
+            .collect::<Vec<_>>()
+            .join("+");
+        if combo.is_empty() { None } else { held(&combo).ok() }
     };
-    let screen = POINT { x, y };
-    let mut point = screen;
-    let window = unsafe { WindowFromPoint(screen) };
-    ensure!(!window.is_invalid(), "No window under the virtual pointer");
-    unsafe { ScreenToClient(window, &mut point) }.ok()?;
-    let child =
-        unsafe { ChildWindowFromPointEx(window, point, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED) };
-    let target = if child.is_invalid() { window } else { child };
-    point = screen;
-    unsafe { ScreenToClient(target, &mut point) }.ok()?;
-    let mut keys = 0usize;
-    let modifiers = modifiers.to_ascii_lowercase();
-    if modifiers.contains("ctrl") || modifiers.contains("control") {
-        keys |= 8;
-    }
-    if modifiers.contains("shift") {
-        keys |= 4;
-    }
-    if message == "drag_move" || message == "left_down" {
-        keys |= 1;
-    }
-    let (msg, delta, absolute) = match message {
-        "move" | "drag_move" => (WM_MOUSEMOVE, 0i16, false),
-        "left_down" => (WM_LBUTTONDOWN, 0, false),
-        "left_up" => (WM_LBUTTONUP, 0, false),
-        "right_down" => (WM_RBUTTONDOWN, 0, false),
-        "right_up" => (WM_RBUTTONUP, 0, false),
-        "middle_down" => (WM_MBUTTONDOWN, 0, false),
-        "middle_up" => (WM_MBUTTONUP, 0, false),
-        "up" => (WM_MOUSEWHEEL, 120, true),
-        "down" => (WM_MOUSEWHEEL, -120, true),
-        "left" => (WM_MOUSEHWHEEL, -120, true),
-        "right" => (WM_MOUSEHWHEEL, 120, true),
+    match message {
+        // Moving Jarvis's pointer does not touch the real one.
+        "move" => {}
+        "drag_move" => crate::monitors::set_cursor(x, y),
+        "left_down" | "right_down" | "middle_down" => {
+            borrow_cursor(x, y);
+            std::thread::sleep(std::time::Duration::from_millis(12));
+            mouse(message.trim_end_matches("_down"), true)?;
+        }
+        "left_up" | "right_up" | "middle_up" => {
+            crate::monitors::set_cursor(x, y);
+            let result = mouse(message.trim_end_matches("_up"), false);
+            std::thread::sleep(std::time::Duration::from_millis(12));
+            return_cursor();
+            result?;
+        }
+        "up" | "down" | "left" | "right" => {
+            borrow_cursor(x, y);
+            std::thread::sleep(std::time::Duration::from_millis(12));
+            let result = scroll(message, 1);
+            return_cursor();
+            result?;
+        }
         _ => bail!("Unsupported virtual mouse action"),
-    };
-    if absolute {
-        point = screen;
     }
-    let packed = ((point.x as u16 as u32) | ((point.y as u16 as u32) << 16)) as i32 as isize;
-    let wparam = keys | ((delta as u16 as usize) << 16);
-    unsafe { PostMessageW(Some(target), msg, WPARAM(wparam), LPARAM(packed)) }?;
     Ok(())
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    #[test]
+    #[ignore = "moves the real cursor briefly"]
+    fn cursor_is_returned_after_a_borrowed_scroll() {
+        let before = crate::monitors::cursor();
+        super::virtual_mouse(before.0 + 120, before.1 + 80, "up", "").unwrap();
+        assert_eq!(crate::monitors::cursor(), before);
+        super::virtual_mouse(before.0 + 50, before.1 + 50, "move", "").unwrap();
+        assert_eq!(crate::monitors::cursor(), before, "a virtual move must not touch the real cursor");
+    }
 }

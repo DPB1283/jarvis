@@ -32,6 +32,7 @@ fn opt_arg<T: DeserializeOwned>(args: &[Value], i: usize) -> Option<T> {
 pub async fn handle_invoke(ctx: &Ctx, channel: &str, args: Vec<Value>) -> Result<Value, InvokeError> {
     let db = &ctx.db;
     let out = match channel {
+        "browser:status" => ctx.browser.status(),
         "settings:get" => serde_json::to_value(ctx.settings.get()).map_err(anyhow::Error::from)?,
         "settings:update" => {
             let patch: Value = arg(&args, 0, "settings patch")?;

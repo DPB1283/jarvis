@@ -2,7 +2,9 @@
 //! Inputs are validated against the schema before anything runs (with eager input streaming the API
 //! doesn't validate them for us).
 
+pub mod install;
 pub mod memory;
+pub mod browser;
 pub mod activity;
 pub mod utilities;
 pub mod screens;
@@ -81,7 +83,9 @@ pub fn all() -> &'static [ToolDef] {
         v.extend(system::tools());
         v.extend(memory::tools());
         v.extend(timers::tools());
+        v.extend(install::tools());
         v.extend(web::tools());
+        v.extend(browser::tools());
         v.extend(messaging::tools());
         v.extend(screens::tools());
         v.extend(clipboard::tools());

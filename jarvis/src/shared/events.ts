@@ -58,6 +58,8 @@ export interface BusEvents {
   /** Routines were created/edited/deleted (from Settings or by voice); UIs should re-list. */
   routines_changed: Record<string, never>;
   dictation: { active: boolean };
+  /** What he is busy doing (a tool running), shown on the HUD. `progress` is 0..1 when known. */
+  activity: { text: string; active: boolean; progress?: number | null };
   /** Full list of running timers/alarms whenever it changes (empty = none). Renderer animates progress locally. */
   timers: { timers: TimerInfo[] };
   /** A timer/alarm just went off (HUD can flash; voice plays the alarm). */
@@ -91,6 +93,7 @@ export const RENDERER_EVENTS = [
   "followup",
   "routines_changed",
   "dictation",
+  "activity",
   "timers",
   "timer_done",
   "game_mode",
@@ -113,6 +116,7 @@ export interface InvokeApi {
   "secrets:status": () => Record<string, boolean>;
   "secrets:set": (name: string, value: string) => void;
   "secrets:clear": (name: string) => void;
+  "browser:status": () => { port: number; pairingCode: string; connected: boolean };
   "settings:get": () => Settings;
   "settings:update": (patch: SettingsPatch) => Settings;
   "memory:list": (filter?: { kind?: MemoryKind; query?: string }) => MemoryItem[];

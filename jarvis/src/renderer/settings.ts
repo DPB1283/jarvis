@@ -1,3 +1,4 @@
+import { mountBrowserSettings } from "./browser-settings";
 import { mountApiKeys } from "./api-keys";
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch, type TimerInfo, type VoiceOption } from "../shared/settings";
 import { mountMemory } from "./memory";
@@ -28,7 +29,7 @@ export function mountSettings() {
   let activeTab: SettingsTab = "general";
   const mounted = new Set<SettingsTab>();
   const sections = {
-    routines: mountRoutines, timers: mountTimers, memory: mountMemory, messaging: mountChatApps, "api-keys": mountApiKeys,
+    routines: mountRoutines, timers: mountTimers, memory: mountMemory, messaging: mountChatApps, "api-keys": mountApiKeys, browser: mountBrowserSettings,
   };
   function updateFooter() {
     unsaved.hidden = !dirty;

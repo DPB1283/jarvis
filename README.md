@@ -14,6 +14,7 @@ He lives on screen as a small floating orb. Left-click it to type, right-click f
 | Folder | What it is |
 |---|---|
 | [`jarvis-rs/`](jarvis-rs) | The app: Rust + Tauri 2. Crates for the brain (Claude), tools, voice, and Windows desktop control. |
+| [`browser-extension/`](browser-extension) | Chrome/Edge extension that gives Jarvis his own collapsed tab group (load unpacked, pair in Settings → Browser). |
 | [`jarvis/`](jarvis) | The web UI (floating orb HUD and Settings, TypeScript) that the app embeds, plus a few Node helper tools (calendar, Steam, YouTube). |
 
 ## What you need

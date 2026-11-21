@@ -24,3 +24,4 @@ jarvis-core.workspace = true
 jarvis-desktop.workspace = true
 quick-xml = { version = "0.42", features = ["serialize"] }
 rusqlite.workspace = true
+tokio-tungstenite = "0.29"

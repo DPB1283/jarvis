@@ -314,3 +314,46 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
 .api-key-controls input { flex: 1 1 180px; min-width: 0; }
 
 .dictation-status { padding: 4px 8px; border-radius: 5px; background: var(--panel); color: var(--aqua); font: 600 12px system-ui, sans-serif; }
+
+/* What he is busy doing: a spinner, the label, and a progress bar (shimmers when the percentage is unknown). */
+.activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  width: min(100%, 22rem);
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--aqua) 30%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--aqua);
+  font: 600 12px/1.3 system-ui, sans-serif;
+  animation: activity-in .18s ease-out;
+}
+.activity[hidden] { display: none; }
+.activity-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--aqua) 28%, transparent);
+  border-top-color: var(--aqua);
+  border-radius: 50%;
+  animation: activity-spin .8s linear infinite;
+}
+.activity-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--glow); }
+.activity-percent { font-variant-numeric: tabular-nums; }
+.activity-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--aqua) 18%, transparent);
+}
+.activity-fill { width: 0; height: 100%; border-radius: inherit; background: var(--aqua); transition: width .25s ease-out; }
+.activity[data-indeterminate] .activity-fill { width: 35%; animation: activity-slide 1.2s ease-in-out infinite; }
+@keyframes activity-spin { to { transform: rotate(360deg); } }
+@keyframes activity-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@keyframes activity-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .activity, .activity-spinner, .activity[data-indeterminate] .activity-fill { animation: none; }
+  .activity[data-indeterminate] .activity-fill { width: 50%; }
+}

@@ -30,15 +30,21 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
     let mut context = json!({"local_time":chrono::Local::now().to_rfc3339(),"user_title":settings.user_title,"user_name":settings.user_name,
         "personality":settings.personality,"safety_mode":settings.safety_mode,"game_mode":game,"location":settings.location,
         "screens":jarvis_desktop::monitors::list(),"enabled_routines":ctx.db.list_routines()?.into_iter().filter(|r|r.enabled).collect::<Vec<_>>()});
-    if session.messages.is_empty() {
+    {
         use jarvis_core::model::MemoryKind;
+        // Every turn, not just the first of a conversation: a fact saved a minute ago ("when I say Discord I
+        // mean Discord Canary") has to apply to the very next request. Newest first, capped so it stays small.
         context["remembered_facts"] = json!(
             ctx.db
                 .list_memory(Some(MemoryKind::Fact), None)?
                 .into_iter()
-                .map(|m| m.text)
+                .take(80)
+                .map(|m| m.text.chars().take(400).collect::<String>())
                 .collect::<Vec<_>>()
         );
+    }
+    if session.messages.is_empty() {
+        use jarvis_core::model::MemoryKind;
         context["open_todos"] = json!(
             ctx.db
                 .list_memory(Some(MemoryKind::Todo), None)?
@@ -142,6 +148,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
                     {
                         bail!("User declined");
                     }
+                    let _busy = Busy::new(&ctx.bus, "using the screen");
                     let result = tools::screens::action(name, input, &ctx.bus).await;
                     ctx.db.log_action(
                         &format!("computer.{name}"),
@@ -159,6 +166,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
                     ctx.db.log_action(name, input, "denied", None);
                     bail!("User declined");
                 }
+                let _busy = Busy::new(&ctx.bus, &(tool.summary)(input));
                 let result = (tool.run)(ctx.clone(), input.clone()).await;
                 let summary = match &result {
                     Ok(output) => output.log_text(),
@@ -219,6 +227,28 @@ fn ultron_command(text: &str) -> Option<bool> {
         .iter()
         .position(|regex| regex.is_match(&clean))
         .map(|i| i == 0)
+}
+
+/// Tells the HUD he is busy with something until dropped. Dropping also covers an aborted turn, so the
+/// "working" indicator can never get stuck on.
+struct Busy<'a> {
+    bus: &'a Bus,
+}
+impl<'a> Busy<'a> {
+    fn new(bus: &'a Bus, summary: &str) -> Self {
+        let mut chars = summary.trim().chars();
+        let text = match chars.next() {
+            Some(first) => format!("{}{}…", first.to_uppercase(), chars.as_str()),
+            None => "Working…".to_owned(),
+        };
+        bus.emit(Event::Activity { text, active: true, progress: None });
+        Self { bus }
+    }
+}
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.bus.emit(Event::Activity { text: String::new(), active: false, progress: None });
+    }
 }
 
 pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {

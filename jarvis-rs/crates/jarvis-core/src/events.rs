@@ -91,6 +91,8 @@ pub enum Event {
     SettingsChanged { settings: Box<Settings> },
     RoutinesChanged {},
     Dictation { active: bool },
+    /// brain → renderer: what he is busy doing right now (a tool running). `progress` is 0..1 when known.
+    Activity { text: String, active: bool, progress: Option<f64> },
     VirtualPointer { x: i32, y: i32 },
     /// Full list of running timers whenever it changes.
     Timers { timers: Vec<TimerInfo> },
@@ -121,6 +123,7 @@ impl Event {
             Event::SettingsChanged { .. } => "settings_changed",
             Event::RoutinesChanged {} => "routines_changed",
             Event::Dictation { .. } => "dictation",
+            Event::Activity { .. } => "activity",
             Event::VirtualPointer { .. } => "virtual_pointer",
             Event::Timers { .. } => "timers",
             Event::TimerDone { .. } => "timer_done",

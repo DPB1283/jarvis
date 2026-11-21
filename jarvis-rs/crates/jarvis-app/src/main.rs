@@ -347,6 +347,7 @@ async fn invoke(
             }
             _ => bail!("Unknown drag action."),
         },
+        "browser:status" if window.label() != SETTINGS => bail!("Open Settings to pair the browser."),
         "settings:update" if window.label() == SETTINGS => {
             let mut patch = arg.clone();
             if patch.pointer("/orb/corner").is_some_and(|corner| {

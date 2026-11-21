@@ -47,7 +47,19 @@ pub fn start(text: &str) -> bool {
         ))
         .unwrap()
     });
-    START.is_match(&strip_fillers(&normal(text)))
+    let clean = strip_fillers(&normal(text));
+    if START.is_match(&clean) {
+        return true;
+    }
+    // A short request that is clearly about dictation ("start voice dictation please") also counts, unless it is
+    // a question, a stop, or about something else.
+    const KEYWORDS: [&str; 5] = ["dictation", "dictating", "dictate", "voice typing", "voice type"];
+    const REJECT: [&str; 17] = [
+        "stop", "end", "finish", "exit", "quit", "cancel", "off", "disable", "what", "how", "why", "when", "who", "not",
+        "windows", "settings", "about",
+    ];
+    let words: Vec<&str> = clean.split(' ').collect();
+    words.len() <= 6 && KEYWORDS.iter().any(|k| clean.contains(k)) && !words.iter().any(|w| REJECT.contains(w))
 }
 fn stop(text: &str) -> bool {
     use regex::Regex;
@@ -81,18 +93,20 @@ pub fn parse(text: &str) -> Utterance {
     let re = regex::Regex::new(r"(?i)\b(new paragraph|new line|question mark|exclamation mark|exclamation point|full stop|period|comma)\b").unwrap();
     let mut output = String::new();
     let mut start = 0;
+    const MARKS: &[char] = &[',', '.', ';', ':', '!', '?'];
     for found in re.find_iter(text) {
+        if found.start() < start {
+            continue;
+        }
         output.push_str(&text[start..found.start()]);
         let word = found.as_str().to_ascii_lowercase();
+        // The transcript already has its own commas and full stops. A spoken mark replaces the ones next to
+        // it instead of doubling up ("going on, comma." must give "going on," and not "going on,,.").
+        output.truncate(output.trim_end_matches(|c: char| c == ' ').len());
         if word == "new line" || word == "new paragraph" {
-            while output.ends_with(' ') {
-                output.pop();
-            }
             output.push_str(if word == "new line" { "\n" } else { "\n\n" });
         } else {
-            while output.ends_with(' ') {
-                output.pop();
-            }
+            output.truncate(output.trim_end_matches(MARKS).len());
             output.push_str(match word.as_str() {
                 "period" | "full stop" => ".",
                 "comma" => ",",
@@ -101,6 +115,10 @@ pub fn parse(text: &str) -> Utterance {
             });
         }
         start = found.end();
+        start += text[start..].len() - text[start..].trim_start_matches(|c: char| c == ' ' || MARKS.contains(&c)).len();
+        if !output.ends_with('\n') && start < text.len() {
+            output.push(' ');
+        }
     }
     output.push_str(&text[start..]);
     let mut result = output.trim_matches(' ').to_owned();
@@ -171,13 +189,14 @@ mod tests {
             "Start dictation", "Jarvis, start dictation.", "start dictating", "Start voice typing", "Could you please start voice typing?",
             "Hey Jarvis, can you begin dictation for me", "turn on dictation mode", "enable voice typing", "Voice type", "Dictate",
             "dictation mode", "I want to dictate", "Let me dictate", "Type for me", "start typing what I say", "Take dictation",
-            "open voice input", "Switch on speech to text", "type what I’m saying",
+            "start voice dictation", "Start voice dictation, please.", "Jarvis start voice dictation", "begin voice dictation now", "open voice input", "Switch on speech to text", "type what I’m saying",
         ] {
             assert!(start(phrase), "should start: {phrase}");
         }
         for phrase in [
             "What is dictation?", "start the timer", "open notepad", "I will dictate a letter to my boss tomorrow",
-            "start typing", "Windows dictation", "stop dictation",
+            "start typing", "Windows dictation", "stop dictation", "stop voice dictation", "what is voice dictation",
+            "how do I turn off dictation", "open dictation settings",
         ] {
             assert!(!start(phrase), "must not start: {phrase}");
         }
@@ -188,5 +207,24 @@ mod tests {
             assert!(matches!(parse(phrase), Utterance::Stop), "should stop: {phrase}");
         }
         assert!(!matches!(parse("stop the music"), Utterance::Stop));
+    }
+
+    #[test]
+    fn spoken_punctuation_replaces_the_transcripts_own() {
+        let text = |t: &str| match parse(t) {
+            Utterance::Text(x) => x,
+            _ => panic!("not text: {t}"),
+        };
+        // Scribe already punctuates; the spoken word must not double it ("going on,..").
+        assert_eq!(
+            text("There is a test going on, comma. This is the test, period. How long will it take, question mark."),
+            "There is a test going on, This is the test. How long will it take? "
+        );
+        assert_eq!(text("Hello comma world period"), "Hello, world. ");
+        assert_eq!(text("Hello, comma, world."), "Hello, world. ");
+        assert_eq!(text("First line. New line. Second line."), "First line.
+Second line. ");
+        assert_eq!(text("Wait, exclamation mark."), "Wait! ");
+        assert_eq!(text("Just plain words."), "Just plain words. ");
     }
 }

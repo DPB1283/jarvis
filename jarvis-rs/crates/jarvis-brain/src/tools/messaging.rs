@@ -43,6 +43,28 @@ fn profile(ctx: &Ctx, name: &str) -> Result<ChatAppProfile> {
         })
         .context("No matching messaging profile")
 }
+/// Chat apps decorate their window title as things happen: an unread count "(3) ", a leading dot, a typing or
+/// notification badge. Those are not a different conversation, so compare the title without them.
+fn chat_title(title: &str) -> String {
+    let mut t = title.trim();
+    loop {
+        // An unread count like "(3) " or "(9+) ".
+        if let Some((count, tail)) = t.strip_prefix('(').and_then(|rest| rest.split_once(')')) {
+            if !count.is_empty() && count.chars().all(|c| c.is_ascii_digit() || c == '+') {
+                t = tail.trim_start();
+                continue;
+            }
+        }
+        // A leading dot, bullet or other decoration.
+        match t.chars().next() {
+            Some(c) if !c.is_alphanumeric() && c != '@' && c != '#' => t = t[c.len_utf8()..].trim_start(),
+            _ => return t.to_lowercase(),
+        }
+    }
+}
+fn same_chat(a: &str, b: &str) -> bool {
+    chat_title(a) == chat_title(b)
+}
 fn target(app: &ChatAppProfile) -> Result<Foreground> {
     let fg = window::foreground();
     ensure!(
@@ -127,7 +149,7 @@ async fn message(ctx: Ctx, v: Value) -> Result<ToolOutput> {
                     && saved.attachment.as_deref() == attachment
                     && saved.send == send
                     && fg.pid == saved.pid
-                    && fg.title == saved.title,
+                    && same_chat(&fg.title, &saved.title),
                 "The inspected conversation or message changed"
             );
             Ok(())
@@ -194,7 +216,7 @@ async fn message(ctx: Ctx, v: Value) -> Result<ToolOutput> {
     let image =
         super::screens::snapshot(fg.bounds.context("Cannot inspect target window")?).await?;
     let after = same(&app, fg.hwnd)?;
-    if after.title != fg.title {
+    if !same_chat(&after.title, &fg.title) {
         bail!("Target changed during inspection");
     }
     *CHECKED.lock().unwrap() = Some(Checked {
@@ -268,5 +290,14 @@ mod tests {
         request["chat_confirmed"] = json!(true);
         message(ctx.clone(), request.clone()).await.unwrap();
         assert!(message(ctx, request).await.is_err());
+    }
+
+    #[test]
+    fn unread_badges_do_not_look_like_a_different_chat() {
+        assert!(same_chat("@Snowman - Discord", "(3) @Snowman - Discord"));
+        assert!(same_chat("• @Snowman - Discord", "@Snowman - Discord"));
+        assert!(same_chat("(12) #general | PalaceHub - Discord", "#general | PalaceHub - Discord"));
+        assert!(!same_chat("@Snowman - Discord", "@Remy - Discord"));
+        assert!(!same_chat("#rules | PalaceHub - Discord", "@Snowman - Discord"));
     }
 }

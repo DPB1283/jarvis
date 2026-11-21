@@ -1,0 +1,1 @@
+{"manifest_version":3,"name":"Jarvis browser","version":"0.1.0","description":"A private tab group for Jarvis.","permissions":["tabs","tabGroups","scripting","storage","alarms","debugger"],"host_permissions":["http://*/*","https://*/*"],"background":{"service_worker":"background.js"},"action":{"default_title":"Pair Jarvis","default_popup":"popup.html"}}

@@ -11,6 +11,10 @@ export function mountHud() {
   const user = document.querySelector<HTMLElement>("#user-caption")!;
   const assistant = document.querySelector<HTMLElement>("#assistant-caption")!;
   const dictationStatus = document.querySelector<HTMLElement>("#dictation-status")!;
+  const activity = document.querySelector<HTMLElement>("#activity")!;
+  const activityText = document.querySelector<HTMLElement>("#activity-text")!;
+  const activityPercent = document.querySelector<HTMLElement>("#activity-percent")!;
+  const activityFill = document.querySelector<HTMLElement>("#activity-fill")!;
   const fullAccess = document.querySelector<HTMLElement>("#full-access")!;
   const approvals = document.querySelector<HTMLElement>("#approvals")!;
   const form = document.querySelector<HTMLFormElement>("#message-form")!;
@@ -26,6 +30,34 @@ export function mountHud() {
   let receivedTimers = false;
   let ignoring: boolean | undefined;
   let toastTimer: ReturnType<typeof setTimeout>;
+  let activityDelay: ReturnType<typeof setTimeout> | undefined;
+  let activityStale: ReturnType<typeof setTimeout> | undefined;
+
+  // The "he is working on it" chip. It waits a moment before appearing so quick tools do not flicker, and
+  // hides itself if the brain somehow never says it finished.
+  function setActivity(value: BusEvents["activity"]) {
+    clearTimeout(activityStale);
+    if (!value.active || gameMode) {
+      clearTimeout(activityDelay);
+      activityDelay = undefined;
+      activity.hidden = true;
+      return;
+    }
+    activityText.textContent = value.text;
+    const known = typeof value.progress === "number" && Number.isFinite(value.progress);
+    const fraction = known ? Math.min(1, Math.max(0, value.progress as number)) : 0;
+    activity.toggleAttribute("data-indeterminate", !known);
+    activityFill.style.width = known ? `${Math.round(fraction * 100)}%` : "";
+    activityPercent.hidden = !known;
+    activityPercent.textContent = known ? `${Math.round(fraction * 100)}%` : "";
+    if (activity.hidden && activityDelay === undefined) {
+      activityDelay = setTimeout(() => {
+        activityDelay = undefined;
+        if (!gameMode) activity.hidden = false;
+      }, 300);
+    }
+    activityStale = setTimeout(() => setActivity({ text: "", active: false }), 20 * 60_000);
+  }
 
   function setIgnore(ignore: boolean) {
     if (ignoring === ignore) return;
@@ -137,6 +169,7 @@ export function mountHud() {
         // Hide only when the orb shares the game's screen (main sends hideHud); on another monitor he stays.
         gameMode = event.hideHud ?? event.active;
         orb.hidden = gameMode;
+        if (gameMode) setActivity({ text: "", active: false });
         if (gameMode) {
           hideInput();
           toast.hidden = true;
@@ -145,6 +178,9 @@ export function mountHud() {
         break;
       case "dictation":
         dictationStatus.hidden = !event.active;
+        break;
+      case "activity":
+        setActivity(event);
         break;
       case "timers":
         receivedTimers = true;

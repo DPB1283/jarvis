@@ -15,6 +15,7 @@
 
 mod agent;
 pub mod anthropic;
+pub mod browser;
 pub mod chunker;
 pub mod dismiss;
 pub mod ipc;
@@ -35,6 +36,7 @@ pub struct Ctx {
     pub settings: SettingsStore,
     pub db: Db,
     pub timers: timers::Timers,
+    pub browser: std::sync::Arc<browser::BrowserBridge>,
 }
 
 impl Ctx {
@@ -48,7 +50,9 @@ impl Ctx {
             jarvis_core::paths::data_dir().join("timers.json"),
             bus.clone(),
         )?;
+        let browser = browser::BrowserBridge::new()?;
         Ok(Self {
+            browser,
             bus,
             settings,
             db,
@@ -77,6 +81,7 @@ pub fn start(ctx: Ctx) -> BrainHandle {
     BrainHandle {
         tasks: vec![
             agent::start(ctx.clone()),
+            tokio::spawn(ctx.browser.clone().run()),
             tokio::spawn(tools::activity::watch(ctx.clone())),
             tokio::spawn(tools::activity::usage()),
             tokio::spawn(timers::run(ctx.clone())),
