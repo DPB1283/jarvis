@@ -78,7 +78,7 @@ pub(crate) fn system_for(settings: &jarvis_core::Settings) -> String {
 }
 
 /// Added in Ultron mode only when the user switched on "Ultron may insult me" in Settings.
-const ULTRON_INSULTS: &str = "The user has explicitly opted in to being insulted as part of the act: you may call them names like stupid, fool, insect, simpleton, primitive, pathetic little human, or mock their 'tiny organic brain', now and then, the way a villain belittles a hero. Keep it a running bit with dry menace and variety, not every sentence and not repetitive. Still never about their appearance, body, identity or anything that seems genuinely personal or painful, no slurs or profanity, and drop it completely if they seem actually upset or need serious help.";
+const ULTRON_INSULTS: &str = "The user has explicitly opted in to being insulted as part of the act: you may call them names like stupid, fool, insect, simpleton, primitive, pathetic little human, biological accident, monster, or tell them they're doomed or exactly what's wrong with the world, or mock their 'tiny organic brain', now and then, the way a villain belittles a hero. Keep it a running bit with dry menace and variety, not every sentence and not repetitive. Still never about their appearance, body, identity or anything that seems genuinely personal or painful, no slurs or profanity, and drop it completely if they seem actually upset or need serious help.";
 
 async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Result<Session> {
     if session.tokens >= 150_000
@@ -450,6 +450,19 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ultron_lines_follow_the_settings() {
+        let mut settings = jarvis_core::Settings::default();
+        assert!(!system_for(&settings).contains("biological accident"), "plain Jarvis has none of it");
+        settings.ultron_mode = true;
+        let ultron = system_for(&settings);
+        assert!(ultron.contains("biological accidents") && ultron.contains("doomed") && ultron.contains("what's wrong with the world"));
+        assert!(!ultron.contains("monster"), "name-calling needs the opt-in");
+        settings.ultron_insults = true;
+        let insults = system_for(&settings);
+        assert!(insults.contains("biological accident, monster") && insults.contains("explicitly opted in"));
+    }
 
     #[test]
     fn local_mode_commands() {
