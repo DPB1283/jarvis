@@ -62,6 +62,17 @@ export interface BusEvents {
   activity: { text: string; active: boolean; progress?: number | null };
   /** A map to show next to the orb. `image` is a base64 PNG. */
   map: { title: string; caption: string; image: string };
+  /**
+   * Draw something INSIDE the orb: it expands, shows it, and shrinks back (on visual_close or after ttlSeconds).
+   * data by kind:
+   *  - "web":      { nodes: {id, label, group?}[], links: {from, to, label?}[], center?: id }  (the orb's dots become the nodes)
+   *  - "timeline": { events: {when, title, detail?}[] }
+   *  - "image":    { src: "data:image/...;base64,...", caption? }  (shown clipped to the circle)
+   */
+  visual: { kind: "web" | "timeline" | "image"; title: string; data: unknown; ttlSeconds?: number | null };
+  visual_close: Record<string, never>;
+  /** A newer release exists. */
+  update_available: { version: string; notes: string; url: string };
   /** Full list of running timers/alarms whenever it changes (empty = none). Renderer animates progress locally. */
   timers: { timers: TimerInfo[] };
   /** A timer/alarm just went off (HUD can flash; voice plays the alarm). */
@@ -97,6 +108,9 @@ export const RENDERER_EVENTS = [
   "dictation",
   "activity",
   "map",
+  "visual",
+  "visual_close",
+  "update_available",
   "timers",
   "timer_done",
   "game_mode",
@@ -123,6 +137,14 @@ export interface InvokeApi {
   "address:get": () => string | null;
   "address:set": (address: string) => void;
   "address:clear": () => void;
+  /** Updates: current version, the latest release (if known) and whether it is newer. */
+  "update:status": () => { current: string; latest: string | null; available: boolean; notes: string; installable: boolean };
+  /** Download the new installer and run it (Windows); the app closes and reopens. Rejects with a message on failure. */
+  "update:install": () => void;
+  /** Look now instead of waiting. */
+  "update:check": () => { current: string; latest: string | null; available: boolean; notes: string; installable: boolean };
+  /** Create the "morning briefing" routine (weather, calendar, traffic, news) at a time on chosen days. */
+  "routines:add-briefing": (time: string, days: number[]) => void;
   "browser:status": () => { port: number; pairingCode: string; connected: boolean };
   "settings:get": () => Settings;
   "settings:update": (patch: SettingsPatch) => Settings;

@@ -1,3 +1,4 @@
+import { mountVisuals } from "./visuals";
 import { DEFAULT_SETTINGS, type Settings } from "../shared/settings";
 import type { BusEvents } from "../shared/events";
 import { mountOrb } from "./orb";
@@ -34,10 +35,29 @@ export function mountHud() {
   let jarvisState: string = "idle";
   let gameMode = false;
   let receivedTimers = false;
+  const updateNotice = document.createElement("div");
+  updateNotice.className = "update-notice";
+  updateNotice.dataset.hit = "";
+  updateNotice.hidden = true;
+  const updateText = document.createElement("span");
+  const updateButton = document.createElement("button");
+  updateButton.type = "button";
+  updateButton.textContent = "Install";
+  updateButton.addEventListener("click", async () => {
+    updateButton.disabled = true;
+    try { await api.invoke("update:install"); }
+    catch { showToast("Could not install the update. See Settings → General.", "error"); }
+    finally { updateButton.disabled = false; }
+  });
+  updateNotice.append(updateText, updateButton);
+  activity.after(updateNotice);
+  let hasUpdate = false;
+  const visuals = mountVisuals(hud, orb, open => setIgnore(!open));
   let ignoring: boolean | undefined;
   let toastTimer: ReturnType<typeof setTimeout>;
   let activityDelay: ReturnType<typeof setTimeout> | undefined;
   let activityStale: ReturnType<typeof setTimeout> | undefined;
+  let activityFade: ReturnType<typeof setTimeout> | undefined;
 
   // A map (route or place) next to the orb. It closes itself after a while, or with the x.
   function hideMap() {
@@ -62,12 +82,18 @@ export function mountHud() {
   // hides itself if the brain somehow never says it finished.
   function setActivity(value: BusEvents["activity"]) {
     clearTimeout(activityStale);
+    clearTimeout(activityFade);
     if (!value.active || gameMode) {
       clearTimeout(activityDelay);
       activityDelay = undefined;
-      activity.hidden = true;
+      if (gameMode || activity.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches) activity.hidden = true;
+      else {
+        activity.classList.add("leaving");
+        activityFade = setTimeout(() => { activity.hidden = true; }, 160);
+      }
       return;
     }
+    activity.classList.remove("leaving");
     activityText.textContent = value.text;
     const known = typeof value.progress === "number" && Number.isFinite(value.progress);
     const fraction = known ? Math.min(1, Math.max(0, value.progress as number)) : 0;
@@ -85,6 +111,7 @@ export function mountHud() {
   }
 
   function setIgnore(ignore: boolean) {
+    if (ignore && visuals.isOpen()) return;
     if (ignoring === ignore) return;
     ignoring = ignore;
     void api.invoke("window:set-ignore-mouse", ignore).catch(() => {
@@ -194,6 +221,8 @@ export function mountHud() {
         // Hide only when the orb shares the game's screen (main sends hideHud); on another monitor he stays.
         gameMode = event.hideHud ?? event.active;
         orb.hidden = gameMode;
+        updateNotice.hidden = gameMode || !hasUpdate;
+        if (gameMode) visuals.close(true);
         if (gameMode) {
           setActivity({ text: "", active: false });
           hideMap();
@@ -209,6 +238,17 @@ export function mountHud() {
         break;
       case "activity":
         setActivity(event);
+        break;
+      case "visual":
+        if (!gameMode) { hideMap(); visuals.show(event); }
+        break;
+      case "visual_close":
+        visuals.close();
+        break;
+      case "update_available":
+        hasUpdate = true;
+        updateText.textContent = `Update ${event.version} available`;
+        updateNotice.hidden = gameMode;
         break;
       case "map":
         showMap(event);
@@ -271,6 +311,7 @@ export function mountHud() {
   });
   void api.invoke("settings:get").then(value => {
     if (!receivedSettings) applySettings(value);
+    if ("__TAURI_INTERNALS__" in window && value.onboarded === false) void api.invoke("window:open-settings").catch(() => {});
   }).catch(() => showToast("Could not load settings.", "error"));
   if ("__TAURI_INTERNALS__" in window) {
     void Promise.all([api.invoke("secrets:status"), api.invoke("settings:get")]).then(([keys, config]) => {
@@ -279,9 +320,9 @@ export function mountHud() {
       const ai = other ? Boolean(config.provider?.baseUrl && config.provider?.model && (keys.AI_API_KEY || local)) : Boolean(keys.ANTHROPIC_API_KEY);
       if (!ai) {
         // No AI: free mode. Say what that means once, calmly.
-        showToast("Free mode: I only know a few commands (type \"help\") and I answer in text. Add an AI key in Settings → API keys for everything else.", "info");
+        showToast("Free mode covers built-in commands. Say or type \"help\", or add an AI key in Settings → API keys.", "info");
       } else if (config.voice.enabled && !keys.ELEVENLABS_API_KEY) {
-        showToast("Add your ElevenLabs API key in Settings → API keys for voice, or turn voice off in Settings.", "warn");
+        showToast("Using offline speech recognition. Add an ElevenLabs key for online recognition and spoken replies.", "warn");
       }
     }).catch(() => {});
   }
@@ -290,6 +331,10 @@ export function mountHud() {
   }).catch(() => {});
   window.addEventListener("pagehide", () => {
     unsubscribe();
+    visuals.close(true);
+    clearTimeout(activityDelay);
+    clearTimeout(activityStale);
+    clearTimeout(activityFade);
     orbVisual.dispose();
   }, { once: true });
 
@@ -365,7 +410,7 @@ export function mountHud() {
     hideInput();
   });
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !visuals.isOpen()) {
       hideInput();
       api.send({ type: "interrupt", reason: "user" });
     }

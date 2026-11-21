@@ -28,7 +28,10 @@ pub fn needs_approval(mode: SafetyMode, risk: Risk) -> bool {
 
 /// Returns true if the action may run.
 pub async fn authorize(ctx: &Ctx, tool: &str, summary: &str, risk: Risk) -> bool {
-    if !needs_approval(ctx.settings.get().safety_mode, risk) {
+    // An app rule can say "ask before every action" while that app is in front.
+    let settings = ctx.settings.get();
+    let mode = if crate::rules::matching(&settings).is_some_and(|r| r.ask_first) { SafetyMode::AskAll } else { settings.safety_mode };
+    if !needs_approval(mode, risk) {
         return true;
     }
     let id = uuid::Uuid::new_v4().to_string();

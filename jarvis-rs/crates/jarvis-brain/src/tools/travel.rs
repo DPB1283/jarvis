@@ -135,6 +135,21 @@ fn show(ctx: &crate::Ctx, title: String, caption: String, image: String) {
     ctx.bus.emit(Event::Map { title, caption, image });
 }
 
+/// Driving time from the saved home address to `destination`, in seconds (live traffic). For meeting nudges.
+pub(crate) async fn eta_seconds(destination: &str) -> Result<f64> {
+    let token = token()?;
+    let http = client()?;
+    let address = jarvis_core::paths::secret(ADDRESS).context("No home address saved")?;
+    let home = geocode(&http, &token, &address, None).await?;
+    let place = geocode(&http, &token, destination, Some(&home)).await?;
+    let url = format!(
+        "https://api.mapbox.com/directions/v5/mapbox/driving-traffic/{},{};{},{}?overview=false&access_token={}",
+        home.lon, home.lat, place.lon, place.lat, escape(&token)
+    );
+    let body = get_json(&http, &url).await?;
+    body["routes"].get(0).and_then(|r| r["duration"].as_f64()).context("No route found")
+}
+
 pub fn tools() -> Vec<ToolDef> {
     vec![
         ToolDef {

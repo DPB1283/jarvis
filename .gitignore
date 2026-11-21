@@ -30,3 +30,21 @@ target/
 # ── Large downloaded assets (see README for how to fetch the wake-word model) ──
 models/
 jarvis/models/
+
+# ── The old Electron version of Jarvis is not part of this project ─────────────────
+# (jarvis/ here is only the web UI plus the few Node helper tools the Rust app uses.)
+/jarvis/src/preload/
+/jarvis/electron.vite.config.ts
+/jarvis/scripts/electron-vite.mjs
+/jarvis/out/
+/jarvis/src/main/*
+!/jarvis/src/main/tools/
+/jarvis/src/main/tools/*
+!/jarvis/src/main/tools/types.ts
+!/jarvis/src/main/tools/calendar.ts
+!/jarvis/src/main/tools/ps.ts
+!/jarvis/src/main/tools/steam.ts
+!/jarvis/src/main/tools/youtube.ts
+!/jarvis/src/main/tools/window-paste.ts
+!/jarvis/src/main/tools/writing.ts
+!/jarvis/src/main/tools/file-search.ts

@@ -19,6 +19,11 @@ pub mod browser;
 pub mod chunker;
 pub mod dismiss;
 mod free;
+mod nudges;
+pub mod update;
+mod history;
+pub mod rules;
+mod games;
 pub mod ipc;
 mod openai;
 pub mod persona;
@@ -40,6 +45,17 @@ pub struct Ctx {
     pub db: Db,
     pub timers: timers::Timers,
     pub browser: std::sync::Arc<browser::BrowserBridge>,
+    /// While true, replies are shown but not spoken (an app rule asked for silence for this turn).
+    pub quiet: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Ctx {
+    /// Speak a sentence, unless this turn is silent.
+    pub fn speak(&self, text: String) {
+        if !self.quiet.load(std::sync::atomic::Ordering::Relaxed) {
+            self.bus.emit(jarvis_core::Event::Speak { text });
+        }
+    }
 }
 
 impl Ctx {
@@ -55,6 +71,7 @@ impl Ctx {
         )?;
         let browser = browser::BrowserBridge::new()?;
         Ok(Self {
+            quiet: Default::default(),
             browser,
             bus,
             settings,
@@ -88,6 +105,10 @@ pub fn start(ctx: Ctx) -> BrainHandle {
             tokio::spawn(tools::activity::watch(ctx.clone())),
             tokio::spawn(tools::activity::usage()),
             tokio::spawn(timers::run(ctx.clone())),
+            tokio::spawn(history::watch(ctx.clone())),
+            tokio::spawn(rules::track()),
+            tokio::spawn(update::run(ctx.clone())),
+            tokio::spawn(nudges::run(ctx.clone())),
             tokio::spawn(schedulers::reminders(ctx)),
         ],
     }

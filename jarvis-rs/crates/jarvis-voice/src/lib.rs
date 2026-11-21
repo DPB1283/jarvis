@@ -79,6 +79,7 @@ struct Runtime {
     settings: Settings,
     current: JarvisState,
     game_mode: bool,
+    offline_notice: bool,
     dictating: bool,
     dictation_last: Instant,
     dictation_previous: Option<(usize, usize)>,
@@ -123,6 +124,7 @@ pub fn start_voice(bus: Bus, settings: SettingsStore) -> VoiceHandle {
         settings: settings.get(),
         current: JarvisState::Idle,
         game_mode: false,
+        offline_notice: false,
         dictating: false,
         dictation_last: Instant::now(),
         dictation_previous: None,
@@ -497,6 +499,12 @@ impl Runtime {
             return;
         }
         match transcript {
+            Transcript::Offline => {
+                if !self.offline_notice {
+                    self.bus.emit(Event::Toast { level: ToastLevel::Info, text: "Using offline speech recognition (English).".into() });
+                    self.offline_notice = true;
+                }
+            }
             Transcript::Partial(_) if self.dictating => {}
             Transcript::Partial(text) => self.bus.emit(Event::UserSaid {
                 text,
@@ -775,6 +783,8 @@ impl Runtime {
             Event::Speak { text }
                 if self.settings.voice.enabled
                     && !self.settings.voice.muted
+                    && !self.dictating
+                    && jarvis_core::paths::secret("ELEVENLABS_API_KEY").is_some()
                     && !text.trim().is_empty() =>
             {
                 if self
@@ -796,6 +806,10 @@ impl Runtime {
             Event::Interrupt { reason } => {
                 tracing::info!(?reason, state = ?self.current, "Interrupt received");
                 if self.skip_interrupt.take() == Some(reason) {
+                    return;
+                }
+                if self.dictating {
+                    self.end_dictation().await;
                     return;
                 }
                 self.stop_listening();

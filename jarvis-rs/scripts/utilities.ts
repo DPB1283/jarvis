@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { calendarEvents } from "../../jarvis/src/main/tools/calendar";
+import { calendarEvents, calendarUpcoming } from "../../jarvis/src/main/tools/calendar";
 import { steamDeals, steamGames, steamLaunch } from "../../jarvis/src/main/tools/steam";
 import { youtubeSearch } from "../../jarvis/src/main/tools/youtube";
 import { setCalendar } from "./utility-settings";
@@ -7,7 +7,7 @@ import { setCalendar } from "./utility-settings";
 import { writeDocument } from "../../jarvis/src/main/tools/writing";
 import { findFilesSmart } from "../../jarvis/src/main/tools/file-search";
 
-const tools = [writeDocument, findFilesSmart, calendarEvents, steamDeals, steamGames, steamLaunch, youtubeSearch];
+const tools = [writeDocument, findFilesSmart, calendarEvents, calendarUpcoming, steamDeals, steamGames, steamLaunch, youtubeSearch];
 async function main() {
   const { name, input, calendar } = JSON.parse(readFileSync(0, "utf8"));
   const tool = tools.find(tool => tool.name === name);

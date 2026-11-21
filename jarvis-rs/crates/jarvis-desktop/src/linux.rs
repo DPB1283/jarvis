@@ -481,6 +481,16 @@ pub mod input {
 pub mod clipboard {
     use super::*;
 
+    /// No change counter on X11: 0 means "unknown", so watchers just compare the text.
+    pub fn sequence() -> u32 {
+        0
+    }
+
+    /// X11 has no standard "do not record" flag.
+    pub fn is_sensitive() -> bool {
+        false
+    }
+
     /// Current clipboard text, if it holds text.
     pub fn get_text() -> Option<String> {
         run("xclip", &["-selection", "clipboard", "-o"]).ok()

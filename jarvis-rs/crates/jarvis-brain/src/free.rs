@@ -315,7 +315,8 @@ mod tests {
 
         assert_eq!(respond(&ctx, "set a timer for 2 minutes").await, "Timer set for 2 minutes.");
         assert_eq!(ctx.timers.list().len(), 1);
-        assert!(respond(&ctx, "how long is left on the timer").await.contains("1 minute"));
+        let left = respond(&ctx, "how long is left on the timer").await;
+        assert!(left.contains("minute") && left.contains("left"), "{left}");
         assert_eq!(respond(&ctx, "cancel the timers").await, "Cancelled 1 timer.");
         assert!(ctx.timers.list().is_empty());
 

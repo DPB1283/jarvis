@@ -151,3 +151,18 @@ mod tests {
         assert_eq!(get_text(), before.filter(|t| !t.is_empty()));
     }
 }
+
+/// Changes every time the clipboard changes (0 = unknown). Lets a watcher skip work when nothing was copied.
+pub fn sequence() -> u32 {
+    unsafe { GetClipboardSequenceNumber() }
+}
+
+/// True when whoever copied asked clipboard history tools not to record it (password managers set this).
+pub fn is_sensitive() -> bool {
+    use windows::Win32::System::DataExchange::RegisterClipboardFormatW;
+    use windows::core::w;
+    unsafe {
+        let format = RegisterClipboardFormatW(w!("ExcludeClipboardContentFromMonitorProcessing"));
+        format != 0 && IsClipboardFormatAvailable(format).is_ok()
+    }
+}

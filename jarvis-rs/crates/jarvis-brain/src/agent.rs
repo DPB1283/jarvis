@@ -51,6 +51,15 @@ pub(crate) fn user_turn(ctx: &Ctx, first_turn: bool, game: bool, input: &str) ->
                 .count()
         );
     }
+    // A rule for the app he was in: shorter replies, no speech, ask before acting.
+    let rule = crate::rules::matching(&settings);
+    ctx.quiet.store(rule.as_ref().is_some_and(|r| r.silent), std::sync::atomic::Ordering::Relaxed);
+    if let Some(rule) = &rule {
+        if !rule.reply_length.is_empty() {
+            context["personality"]["replyLength"] = json!(rule.reply_length);
+        }
+        context["app_rule"] = json!({"app": rule.app, "silent": rule.silent, "ask_before_acting": rule.ask_first});
+    }
     Ok(format!("[{context}]\n{input}"))
 }
 
@@ -114,7 +123,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
                 spoken.push_str(delta);
                 ctx.bus.emit(Event::AssistantDelta { text: delta.into() });
                 for text in chunker.push(delta) {
-                    ctx.bus.emit(Event::Speak { text });
+                    ctx.speak(text);
                 }
             })
             .await;
@@ -137,7 +146,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
         // answer, and keep the two apart.
         if response.content.iter().any(|b| b["type"] == "tool_use") {
             if let Some(text) = chunker.flush() {
-                ctx.bus.emit(Event::Speak { text });
+                ctx.speak(text);
             }
             if !spoken.is_empty() && !spoken.ends_with(char::is_whitespace) {
                 spoken.push(' ');
@@ -223,7 +232,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
             continue;
         }
         if let Some(text) = chunker.flush() {
-            ctx.bus.emit(Event::Speak { text });
+            ctx.speak(text);
         }
         ctx.bus.emit(Event::AssistantDone { text: spoken });
         ctx.bus.emit(Event::SpeakEnd {});

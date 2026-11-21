@@ -53,7 +53,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing Microsoft Edge WebView2 (needed to show Jarvis)..."; Check: NeedsWebView2; Flags: waituntilterminated
-Filename: "{app}\Jarvis.exe"; Description: "Start Jarvis"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Jarvis.exe"; Description: "Start Jarvis"; Flags: nowait postinstall; Check: ShouldLaunch
 
 [Messages]
 FinishedLabel=Jarvis is installed.%n%nThe first time he starts, right-click the orb, open Settings, and add your Anthropic key (and an ElevenLabs key for his voice) under API keys. To use him in your browser, load the "browser-extension" folder in the install folder as an unpacked extension.
@@ -61,6 +61,22 @@ FinishedLabel=Jarvis is installed.%n%nThe first time he starts, right-click the 
 [Code]
 var
   DownloadPage: TDownloadWizardPage;
+
+// Start Jarvis at the end of a normal install, and after a silent one only when asked (the app's own
+// updater passes /LAUNCH so Jarvis comes back after it has replaced itself).
+function HasParam(const Name: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), Name) = 0 then Result := True;
+end;
+
+function ShouldLaunch: Boolean;
+begin
+  Result := (not WizardSilent) or HasParam('/LAUNCH');
+end;
 
 // The WebView2 runtime ships with Windows 11 and recent Windows 10, and is shared with Edge.
 function WebView2Version(Root: Integer; const Key: String): String;

@@ -160,7 +160,7 @@ fn home_dir() -> Result<PathBuf> {
         .context("Missing home folder")
 }
 
-pub(super) async fn snapshot(rect: Rect) -> Result<Value> {
+pub(crate) async fn snapshot(rect: Rect) -> Result<Value> {
     let w = rect.right - rect.left;
     let h = rect.bottom - rect.top;
     ensure!(w > 0 && h > 0, "Window is not visible");

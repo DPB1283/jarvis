@@ -7,7 +7,7 @@ use tokio::io::AsyncWriteExt;
 
 // Keep the existing calendar recurrence parser, Steam library parser and YouTube result parser
 // shared with Electron. The worker only accepts the tools explicitly listed in utilities.ts.
-async fn run(ctx: Ctx, name: &str, input: Value) -> Result<ToolOutput> {
+pub(crate) async fn run(ctx: Ctx, name: &str, input: Value) -> Result<ToolOutput> {
     let packaged = jarvis_core::paths::packaged_resources()
         .context("Application directory unavailable")?
         .join("utilities");

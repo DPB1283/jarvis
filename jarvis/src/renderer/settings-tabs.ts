@@ -77,5 +77,5 @@ export function mountSettingsTabs(
     if (panel?.hidden) activate(panel.dataset.settingsTab as SettingsTab);
   }, true);
   activate("general");
-  return { panel: (id: SettingsTab) => panels.get(id)! };
+  return { panel: (id: SettingsTab) => panels.get(id)!, activate };
 }

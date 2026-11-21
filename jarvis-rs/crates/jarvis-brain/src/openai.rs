@@ -189,7 +189,7 @@ pub(crate) async fn reply(ctx: Ctx, mut session: Session, input: String, game: b
                     spoken.push_str(&delta);
                     ctx.bus.emit(Event::AssistantDelta { text: delta.clone() });
                     for text in chunker.push(&delta) {
-                        ctx.bus.emit(Event::Speak { text });
+                        ctx.speak(text);
                     }
                 }
             }
@@ -198,7 +198,7 @@ pub(crate) async fn reply(ctx: Ctx, mut session: Session, input: String, game: b
         if acc.calls.is_empty() {
             session.oa_messages.push(json!({"role":"assistant","content":acc.text}));
             if let Some(text) = chunker.flush() {
-                ctx.bus.emit(Event::Speak { text });
+                ctx.speak(text);
             }
             ctx.bus.emit(Event::AssistantDone { text: spoken });
             ctx.bus.emit(Event::SpeakEnd {});
@@ -208,7 +208,7 @@ pub(crate) async fn reply(ctx: Ctx, mut session: Session, input: String, game: b
 
         // He said something before reaching for tools ("Right away, sir."): speak it now.
         if let Some(text) = chunker.flush() {
-            ctx.bus.emit(Event::Speak { text });
+            ctx.speak(text);
         }
         if !spoken.is_empty() && !spoken.ends_with(char::is_whitespace) {
             spoken.push(' ');

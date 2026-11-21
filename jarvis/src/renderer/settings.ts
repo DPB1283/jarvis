@@ -1,3 +1,4 @@
+import { offerOnboarding } from "./onboarding";
 import { mountBrowserSettings } from "./browser-settings";
 import { mountApiKeys } from "./api-keys";
 import { DEFAULT_SETTINGS, LANGUAGES, type Language, type Settings, type SettingsPatch, type TimerInfo, type VoiceOption } from "../shared/settings";
@@ -365,6 +366,98 @@ export function mountSettings() {
   const clipHotkey = input(gaming, "Clip hotkey");
   clipHotkey.placeholder = "Default";
 
+  const native = "__TAURI_INTERNALS__" in window;
+  const updates = group("general", "Updates");
+  updates.hidden = !native;
+  const autoUpdate = input(updates, "Automatically check for updates", "checkbox");
+  const updateStatus = document.createElement("p");
+  updateStatus.setAttribute("role", "status");
+  const updateNotes = document.createElement("p");
+  updateNotes.className = "update-notes";
+  updateNotes.hidden = true;
+  const updateActions = document.createElement("div");
+  updateActions.className = "actions";
+  const checkUpdates = document.createElement("button");
+  checkUpdates.type = "button";
+  checkUpdates.textContent = "Check for updates";
+  const installUpdate = document.createElement("button");
+  installUpdate.type = "button";
+  installUpdate.textContent = "Install update";
+  installUpdate.hidden = true;
+  updateActions.append(checkUpdates, installUpdate);
+  updates.append(updateStatus, updateActions, updateNotes);
+  async function getUpdate(check: boolean) {
+    checkUpdates.disabled = true;
+    if (check) updateStatus.textContent = "Checking for updates…";
+    try {
+      const result = await api.invoke(check ? "update:check" : "update:status");
+      const current = "Current version " + result.current;
+      updateStatus.textContent = result.available ? current + " · Update " + result.latest + " available" : current + (check ? " · You're up to date" : "");
+      updateNotes.textContent = result.notes;
+      updateNotes.hidden = !result.notes;
+      installUpdate.hidden = !result.installable || !result.available;
+    } catch {
+      updateStatus.textContent = "Could not check for updates.";
+    } finally {
+      checkUpdates.disabled = false;
+    }
+  }
+  checkUpdates.addEventListener("click", () => void getUpdate(true));
+  installUpdate.addEventListener("click", async () => {
+    installUpdate.disabled = true;
+    try { await api.invoke("update:install"); }
+    catch { updateStatus.textContent = "Could not install the update."; }
+    finally { installUpdate.disabled = false; }
+  });
+  if (native) void getUpdate(false);
+
+  const history = group("controls", "Local history");
+  history.hidden = !native;
+  const clipboardHistory = input(history, "Keep clipboard history", "checkbox");
+  const screenHistory = input(history, "Keep recent screen snapshots", "checkbox");
+  const historyNote = document.createElement("p");
+  historyNote.className = "settings-help";
+  historyNote.textContent = "Both are off by default. History is stored only on this PC. Small screen snapshots are kept for about one day.";
+  history.append(historyNote);
+
+  const appRules = group("controls", "App rules");
+  appRules.hidden = !native;
+  const ruleList = document.createElement("div");
+  const addRule = document.createElement("button");
+  addRule.type = "button";
+  addRule.textContent = "Add app rule";
+  type AppRule = NonNullable<Settings["appRules"]>[number];
+  const rules: Array<() => AppRule> = [];
+  function addRuleRow(value: AppRule = { app: "", silent: false, replyLength: "", askFirst: false }) {
+    const row = document.createElement("div");
+    row.className = "app-rule";
+    const app = input(row, "App or window title");
+    app.value = value.app;
+    const silent = input(row, "Silent", "checkbox");
+    silent.checked = value.silent;
+    const length = select(row, "Reply length", [["", "Default"], ["brief", "Brief"], ["middle", "Medium"], ["normal", "Normal"]]);
+    length.value = value.replyLength;
+    const askFirst = input(row, "Ask first", "checkbox");
+    askFirst.checked = value.askFirst;
+    const read = (): AppRule => ({ app: app.value.trim(), silent: silent.checked, replyLength: length.value as AppRule["replyLength"], askFirst: askFirst.checked });
+    rules.push(read);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label", "Remove app rule");
+    remove.addEventListener("click", () => {
+      rules.splice(rules.indexOf(read), 1);
+      row.remove();
+      addRule.focus();
+      form.dispatchEvent(new Event("input"));
+    });
+    row.append(remove);
+    ruleList.append(row);
+    return app;
+  }
+  addRule.addEventListener("click", () => addRuleRow().focus());
+  appRules.append(ruleList, addRule);
+
   const calendar = group("general", "Calendar");
   const calendarUrl = input(calendar, "Google Calendar secret iCal URL", "password");
   calendarUrl.autocomplete = "off";
@@ -374,6 +467,46 @@ export function mountSettings() {
   calendarHelp.textContent = "In Google Calendar, select a calendar in Settings. Under Integrate calendar, copy the Secret address in iCal format.";
   calendarUrl.setAttribute("aria-describedby", calendarHelp.id);
   calendar.append(calendarHelp);
+  const nudge = input(calendar, "Remind me about upcoming events", "checkbox");
+  const lead = input(calendar, "Remind me this many minutes before", "number");
+  lead.min = "1";
+  lead.max = "240";
+  lead.step = "1";
+  lead.required = native;
+  nudge.closest("label")!.hidden = lead.closest("label")!.hidden = !native;
+  const briefing = group("general", "Morning briefing");
+  briefing.hidden = !native;
+  const briefingTime = input(briefing, "Time", "time");
+  briefingTime.value = "07:30";
+  const briefingDays = document.createElement("div");
+  briefingDays.className = "briefing-days";
+  const dayChoices = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => {
+    const checkbox = input(briefingDays, day, "checkbox");
+    checkbox.checked = index >= 1 && index <= 5;
+    return checkbox;
+  });
+  briefing.append(briefingDays);
+  // These fields belong to the routine button, independent of Save settings.
+  briefing.addEventListener("input", event => event.stopPropagation());
+  const addBriefing = document.createElement("button");
+  addBriefing.type = "button";
+  addBriefing.textContent = "Create briefing routine";
+  const briefingStatus = document.createElement("p");
+  briefingStatus.setAttribute("role", "status");
+  addBriefing.addEventListener("click", async () => {
+    const days = dayChoices.flatMap((choice, day) => choice.checked ? [day] : []);
+    if (!briefingTime.value || !days.length) {
+      briefingStatus.textContent = "Choose a time and at least one day.";
+      return;
+    }
+    addBriefing.disabled = true;
+    try {
+      await api.invoke("routines:add-briefing", briefingTime.value, days);
+      briefingStatus.textContent = "Morning briefing added to Routines.";
+    } catch { briefingStatus.textContent = "Could not create the briefing routine."; }
+    finally { addBriefing.disabled = false; }
+  });
+  briefing.append(addBriefing, briefingStatus);
 
   function showVoices(selected: string) {
     const options = voices.map(item => option(item.voiceId, item.description ? `${item.name} · ${item.description}` : item.name));
@@ -428,6 +561,14 @@ export function mountSettings() {
     clipApp.value = value.clips?.app ?? DEFAULT_SETTINGS.clips.app;
     clipHotkey.value = value.clips?.hotkey ?? "";
     calendarUrl.value = value.calendar?.icsUrl ?? "";
+    autoUpdate.checked = value.updates?.check ?? true;
+    clipboardHistory.checked = value.history?.clipboard ?? false;
+    screenHistory.checked = value.history?.screens ?? false;
+    nudge.checked = value.nudges?.enabled ?? true;
+    lead.value = String(value.nudges?.leadMinutes ?? 10);
+    ruleList.replaceChildren();
+    rules.length = 0;
+    for (const rule of value.appRules ?? []) addRuleRow(rule);
   }
 
   function changedFields<T extends object>(baseline: T, values: T): Partial<T> {
@@ -483,7 +624,14 @@ export function mountSettings() {
       title.focus();
       return;
     }
+    const currentRules = rules.map(read => read()).filter(rule => rule.app);
     const patch: SettingsPatch = {
+      ...(native ? {
+        ...((saved.updates?.check ?? true) === autoUpdate.checked ? {} : { updates: { check: autoUpdate.checked } }),
+        ...((saved.history?.clipboard ?? false) === clipboardHistory.checked && (saved.history?.screens ?? false) === screenHistory.checked ? {} : { history: { clipboard: clipboardHistory.checked, screens: screenHistory.checked } }),
+        ...((saved.nudges?.enabled ?? true) === nudge.checked && (saved.nudges?.leadMinutes ?? 10) === Number(lead.value) ? {} : { nudges: { enabled: nudge.checked, leadMinutes: Number(lead.value) || 10 } }),
+        ...(JSON.stringify(currentRules) === JSON.stringify(saved.appRules ?? []) ? {} : { appRules: currentRules }),
+      } : {}),
       ...changedFields(
         { ultronMode: saved.ultronMode, language: saved.language ?? "en", userTitle: saved.userTitle, userName: saved.userName ?? "", safetyMode: saved.safetyMode, launchAtStartup: saved.launchAtStartup },
         { ultronMode: ultron.checked, language: language.value as Language, userTitle, userName: userName.value.trim(), safetyMode: safety.value as Settings["safetyMode"], launchAtStartup: startup.checked },
@@ -535,11 +683,15 @@ export function mountSettings() {
   });
   const unsubscribe = api.on(event => {
     if (event.type === "settings_changed" && !dirty) render(event.settings);
+    if (event.type === "update_available" && native) void getUpdate(false);
   });
   window.addEventListener("pagehide", unsubscribe, { once: true });
   save.disabled = true;
   void api.invoke("settings:get").then(value => {
     if (!saved) render(value);
+    if ("__TAURI_INTERNALS__" in window && value.onboarded === false) {
+      offerOnboarding(root, value, () => tabs.activate("api-keys", true));
+    }
     save.disabled = false;
     if (activeTab === "voice" && !mounted.has("voice")) {
       mounted.add("voice");

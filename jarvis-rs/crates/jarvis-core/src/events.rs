@@ -95,6 +95,13 @@ pub enum Event {
     Activity { text: String, active: bool, progress: Option<f64> },
     /// brain → renderer: a map to show next to the orb. `image` is a base64 PNG.
     Map { title: String, caption: String, image: String },
+    /// brain → renderer: something to draw INSIDE the orb (it expands to show it). `kind` is "web" (a network of
+    /// nodes), "timeline" or "image"; `data` has the shape for that kind (see shared/events.ts).
+    Visual { kind: String, title: String, data: serde_json::Value, ttl_secs: Option<u32> },
+    /// brain → renderer: close whatever the orb is showing and shrink back.
+    VisualClose {},
+    /// brain → renderer: a newer version is available.
+    UpdateAvailable { version: String, notes: String, url: String },
     VirtualPointer { x: i32, y: i32 },
     /// Full list of running timers whenever it changes.
     Timers { timers: Vec<TimerInfo> },
@@ -127,6 +134,9 @@ impl Event {
             Event::Dictation { .. } => "dictation",
             Event::Activity { .. } => "activity",
             Event::Map { .. } => "map",
+            Event::Visual { .. } => "visual",
+            Event::VisualClose {} => "visual_close",
+            Event::UpdateAvailable { .. } => "update_available",
             Event::VirtualPointer { .. } => "virtual_pointer",
             Event::Timers { .. } => "timers",
             Event::TimerDone { .. } => "timer_done",

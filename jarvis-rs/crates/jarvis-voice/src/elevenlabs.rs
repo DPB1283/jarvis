@@ -34,6 +34,7 @@ pub fn client() -> Result<Client> {
 }
 
 pub enum Transcript {
+    Offline,
     Partial(String),
     Final(String),
     Failed,
@@ -48,6 +49,7 @@ pub async fn transcribe(
     language: &str,
     stop: CancellationToken,
 ) {
+    let mut captured = Vec::new();
     let task = async {
         let key = api_key()?;
         let mut url = format!(
@@ -60,7 +62,11 @@ pub async fn transcribe(
         }
         let mut request = url.into_client_request()?;
         request.headers_mut().insert("xi-api-key", key.parse()?);
-        let (mut socket, _) = tokio_tungstenite::connect_async(request).await?;
+        let (mut socket, _) = tokio::time::timeout(
+            Duration::from_secs(4),
+            tokio_tungstenite::connect_async(request),
+        )
+        .await??;
         let mut started = false;
         let mut last_partial = String::new();
         let mut commit_sent = false;
@@ -111,6 +117,7 @@ pub async fn transcribe(
                 }
                 frame = frames.recv(), if started => {
                     if let Some(samples) = frame {
+                        captured.extend_from_slice(&samples);
                         let audio = samples.into_iter().flat_map(i16::to_le_bytes).collect::<Vec<_>>();
                         socket.send(Message::Text(json!({
                             "message_type":"input_audio_chunk",
@@ -125,14 +132,27 @@ pub async fn transcribe(
             }
         }
     };
-    tokio::select! {
-        _ = stop.cancelled() => {}
-        result = task => {
-            if let Err(error) = result {
-                tracing::warn!(%error, "Transcription failed");
-                let _ = changes.send((generation, Transcript::Failed)).await;
-            }
-        }
+    let result = tokio::select! {
+        _ = stop.cancelled() => return,
+        result = task => result,
+    };
+    if let Err(error) = result {
+        tracing::info!(%error, "Using local speech recognition");
+        let _ = changes.send((generation, Transcript::Offline)).await;
+        let local_stop = stop.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            crate::wake::recognize(captured, frames, &local_stop)
+        });
+        let outcome = tokio::select! {
+            _ = stop.cancelled() => return,
+            result = tokio::time::timeout(Duration::from_secs(30), worker) => result,
+        };
+        let update = match outcome {
+            Ok(Ok(Ok(Some(text)))) => Transcript::Final(text),
+            Ok(Ok(Ok(None))) => Transcript::NoSpeech,
+            _ => Transcript::Failed,
+        };
+        let _ = changes.send((generation, update)).await;
     }
 }
 

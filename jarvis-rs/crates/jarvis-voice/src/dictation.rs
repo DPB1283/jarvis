@@ -49,7 +49,7 @@ pub fn start(text: &str) -> bool {
         .unwrap()
     });
     let clean = strip_fillers(&normal(text));
-    if START.is_match(&clean) {
+    if matches!(clean.as_str(), "empezar dictado" | "iniciar dictado" | "commencer la dictée" | "commencer la dictee" | "diktat starten" | "開始聽寫" | "开始听写") || START.is_match(&clean) {
         return true;
     }
     // A short request that is clearly about dictation ("start voice dictation please") also counts, unless it is
@@ -73,7 +73,8 @@ fn stop(text: &str) -> bool {
         ))
         .unwrap()
     });
-    STOP.is_match(&strip_fillers(&normal(text)))
+    let clean = strip_fillers(&normal(text));
+    matches!(clean.as_str(), "parar dictado" | "detener dictado" | "arrêter la dictée" | "arreter la dictee" | "diktat beenden" | "停止聽寫" | "停止听写") || STOP.is_match(&clean)
 }
 fn normal(text: &str) -> String {
     text.to_lowercase()
@@ -191,6 +192,14 @@ fn secure_field_check(_fg: &window::Foreground) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recognizes_multilingual_commands() {
+        for (begin, end) in [("empezar dictado", "parar dictado"), ("commencer la dictée", "arrêter la dictée"), ("Diktat starten", "Diktat beenden"), ("開始聽寫", "停止聽寫")] {
+            assert!(start(begin), "{begin}");
+            assert!(matches!(parse(end), Utterance::Stop), "{end}");
+        }
+    }
+
     #[test]
     fn commands_and_punctuation() {
         assert!(start("Type what I say."));

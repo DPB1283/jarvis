@@ -26,6 +26,7 @@ struct Vosk {
     accept: unsafe extern "C" fn(Ptr, *const i16, c_int) -> c_int,
     result: ResultJson,
     partial: ResultJson,
+    final_result: ResultJson,
 }
 
 impl Vosk {
@@ -50,6 +51,7 @@ impl Vosk {
                 accept: *library.get(b"vosk_recognizer_accept_waveform_s\0")?,
                 result: *library.get(b"vosk_recognizer_result\0")?,
                 partial: *library.get(b"vosk_recognizer_partial_result\0")?,
+                final_result: *library.get(b"vosk_recognizer_final_result\0")?,
                 _library: library,
             })
         }
@@ -89,11 +91,18 @@ impl Detector {
             .map(std::path::PathBuf::from)
             // Join segments one by one: LoadLibraryEx with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR rejects a path
             // that mixes "\" and "/" (os error 126), which is how the installed build lost its wake word.
-            .or_else(||jarvis_core::paths::packaged_resources().map(|dir|dir.join("bin").join(VOSK_LIBRARY)).filter(|p|p.is_file()))
+            .or_else(|| {
+                jarvis_core::paths::packaged_resources()
+                    .map(|dir| dir.join("bin").join(VOSK_LIBRARY))
+                    .filter(|p| p.is_file())
+            })
             .or_else(|| {
                 [
                     home.join("bin").join(VOSK_LIBRARY),
-                    home.join("node_modules").join("vosk-koffi").join("bin-win32-x64").join(VOSK_LIBRARY),
+                    home.join("node_modules")
+                        .join("vosk-koffi")
+                        .join("bin-win32-x64")
+                        .join(VOSK_LIBRARY),
                     #[cfg(not(windows))]
                     std::path::PathBuf::from("/usr/local/lib").join(VOSK_LIBRARY),
                     #[cfg(not(windows))]
@@ -267,7 +276,9 @@ impl WakeWorker {
                     }
                     Ok(())
                 })();
-                if let Err(error) = result && !input.is_closed() {
+                if let Err(error) = result
+                    && !input.is_closed()
+                {
                     let _ = hits.try_send(Err(error));
                 }
             })?;
@@ -279,7 +290,8 @@ impl WakeWorker {
     }
 
     pub fn reset(&self, follow_up: bool) {
-        self.generation.store(next_generation(follow_up), Ordering::Release);
+        self.generation
+            .store(next_generation(follow_up), Ordering::Release);
     }
 
     pub fn push(&self, frame: Vec<i16>) {
@@ -298,12 +310,15 @@ mod tests {
         for follow_up in [false, true] {
             detector.reset().expect("fresh recognizer");
             for _ in 0..32 {
-                assert!(!detector.frame(&[0; 512], follow_up).expect("process PCM silence"));
+                assert!(
+                    !detector
+                        .frame(&[0; 512], follow_up)
+                        .expect("process PCM silence")
+                );
             }
         }
     }
 }
-
 
 #[cfg(all(test, windows))]
 mod speech_test {
@@ -312,9 +327,92 @@ mod speech_test {
     #[ignore = "requires local Vosk and a synthetic wake phrase"]
     fn recognizes_wake_phrase() {
         let pcm = std::fs::read(std::env::var_os("JARVIS_WAKE_TEST_PCM").unwrap()).unwrap();
-        let mut samples: Vec<i16> = pcm.chunks_exact(2).map(|b| i16::from_le_bytes([b[0],b[1]])).collect();
-        samples.resize(samples.len()+48000,0);
-        let mut detector=Detector::open(0.6).unwrap();
-        assert!(samples.chunks(512).any(|chunk| detector.frame(chunk,false).unwrap()));
+        let mut samples: Vec<i16> = pcm
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        samples.resize(samples.len() + 48000, 0);
+        let mut detector = Detector::open(0.6).unwrap();
+        assert!(
+            samples
+                .chunks(512)
+                .any(|chunk| detector.frame(chunk, false).unwrap())
+        );
     }
+}
+
+/// Recognize one utterance with Vosk's full-vocabulary recognizer on a blocking worker.
+pub fn recognize(
+    captured: Vec<i16>,
+    mut frames: mpsc::Receiver<Vec<i16>>,
+    stop: &tokio_util::sync::CancellationToken,
+) -> Result<Option<String>> {
+    let detector = Detector::open(0.6)?;
+    let mut received = 0;
+    let mut accept = |samples: &[i16]| -> Result<Option<String>> {
+        received += samples.len();
+        let status = unsafe {
+            (detector.api.accept)(
+                detector.recognizer,
+                samples.as_ptr(),
+                samples.len() as c_int,
+            )
+        };
+        if status < 0 {
+            bail!("Vosk could not process microphone audio.");
+        }
+        let done = received >= 20 * 16_000;
+        if status != 1 && !done {
+            return Ok(None);
+        }
+        let read = if status == 1 {
+            detector.api.result
+        } else {
+            detector.api.final_result
+        };
+        let ptr = unsafe { read(detector.recognizer) };
+        let text = if ptr.is_null() {
+            String::new()
+        } else {
+            serde_json::from_slice::<Transcript>(unsafe { CStr::from_ptr(ptr) }.to_bytes())?.text
+        };
+        Ok((done || !text.trim().is_empty()).then_some(text))
+    };
+    for samples in captured.chunks(512) {
+        if stop.is_cancelled() {
+            return Ok(None);
+        }
+        if let Some(text) = accept(samples)? {
+            return Ok((!text.trim().is_empty()).then_some(text));
+        }
+    }
+    while let Some(samples) = frames.blocking_recv() {
+        if stop.is_cancelled() {
+            break;
+        }
+        if let Some(text) = accept(&samples)? {
+            return Ok((!text.trim().is_empty()).then_some(text));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(all(test, windows))]
+#[test]
+#[ignore = "requires the installed Vosk model and a synthetic PCM phrase"]
+fn offline_recognizes_test_phrase() {
+    let pcm = std::fs::read(std::env::var_os("JARVIS_TEST_PCM").unwrap()).unwrap();
+    let mut samples: Vec<i16> = pcm
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    samples.resize(samples.len() + 19 * 16_000, 0);
+    let (sender, frames) = mpsc::channel(1);
+    drop(sender);
+    let result = recognize(samples, frames, &tokio_util::sync::CancellationToken::new()).unwrap();
+    let text = result.as_deref().unwrap_or_default();
+    assert!(
+        text.contains("weather") || text.contains("today"),
+        "Unexpected transcription: {text}"
+    );
 }

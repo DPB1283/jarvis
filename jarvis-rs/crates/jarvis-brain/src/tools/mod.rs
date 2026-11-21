@@ -13,7 +13,9 @@ pub mod messaging;
 pub mod ps;
 pub mod system;
 pub mod timers;
+pub mod play;
 pub mod travel;
+pub mod visual;
 #[cfg(not(windows))]
 pub mod unix;
 pub mod web;
@@ -102,6 +104,9 @@ pub fn all() -> &'static [ToolDef] {
         v.extend(timers::tools());
         v.extend(install::tools());
         v.extend(travel::tools());
+        v.extend(play::tools());
+        v.extend(visual::tools());
+        v.extend(crate::history::tools());
         v.extend(web::tools());
         v.extend(browser::tools());
         v.extend(messaging::tools());

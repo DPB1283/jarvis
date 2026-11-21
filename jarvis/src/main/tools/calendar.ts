@@ -48,6 +48,56 @@ export async function parseCalendarAgenda(source: string, from: Date, to: Date):
   });
 }
 
+/** Timed events (not all-day) starting between from and to, as plain data. Used for "your meeting is soon" nudges. */
+export async function parseCalendarUpcoming(source: string, from: Date, to: Date) {
+  const calendar = await ical.async.parseICS(source);
+  const out: Array<{ id: string; title: string; startMs: number; endMs: number; location: string }> = [];
+  for (const event of Object.values(calendar)) {
+    if (event?.type !== "VEVENT" || event.status === "CANCELLED" || !event.start) continue;
+    try {
+      for (const instance of ical.expandRecurringEvent(event, { from, to, expandOngoing: false })) {
+        if (instance.event.status === "CANCELLED" || instance.isFullDay || instance.start < from || instance.start >= to) continue;
+        const text = (value: unknown) => (typeof value === "string" ? value : (value as { val?: string } | undefined)?.val ?? "").replace(/\s+/g, " ").trim();
+        out.push({
+          id: `${text(event.uid) || text(event.summary)}@${+instance.start}`,
+          title: text(instance.summary) || "Untitled event",
+          startMs: +instance.start,
+          endMs: +instance.end,
+          location: text(event.location),
+        });
+      }
+    } catch {
+      // One malformed event should not hide the rest.
+    }
+  }
+  return out.sort((a, b) => a.startMs - b.startMs).slice(0, 50);
+}
+
+export const calendarUpcoming = defineTool({
+  name: "calendar_upcoming",
+  description: "Internal: timed calendar events in the next few hours, as JSON, for meeting reminders.",
+  schema: z.object({ hours: z.number().int().min(1).max(48).optional() }),
+  risk: "safe",
+  summary: () => "check for upcoming meetings",
+  run: async ({ hours = 3 }) => {
+    const setting = getSettings().calendar?.icsUrl.trim();
+    if (!setting) return "[]";
+    try {
+      const url = new URL(setting);
+      if (url.protocol !== "https:" || url.username || url.password) return "[]";
+      const response = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: "error" });
+      if (!response.ok) return "[]";
+      const source = await response.text();
+      if (!/^BEGIN:VCALENDAR\s*$/im.test(source)) return "[]";
+      const from = new Date();
+      const to = new Date(from.getTime() + hours * 3_600_000);
+      return JSON.stringify(await parseCalendarUpcoming(source, from, to));
+    } catch {
+      return "[]";
+    }
+  },
+});
+
 export const calendarEvents = defineTool({
   name: "calendar_events",
   description: "Read the connected calendar and list upcoming events in local time for the next 1–14 calendar days.",

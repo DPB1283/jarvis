@@ -12,7 +12,7 @@ He lives on screen as a small floating orb. Left-click it to type, right-click f
 
 ## Download
 
-**Windows 11:** [**Download Jarvis-Setup-0.1.0.exe**](https://github.com/DreadBear1283/jarvis/releases/latest/download/Jarvis-Setup-0.1.0.exe)
+**Windows 11:** [**Download Jarvis-Setup.exe**](https://github.com/DreadBear1283/jarvis/releases/latest/download/Jarvis-Setup.exe)
 (71 MB). Run it and you're done: it installs for your user only (no administrator rights), brings the wake-word
 model, the helper tools and the browser extension, and installs the Microsoft Edge WebView2 runtime if your PC
 doesn't have it. All releases are on the [Releases page](https://github.com/DreadBear1283/jarvis/releases).
@@ -82,6 +82,23 @@ there are imported on first start.
   screen, or of Jarvis himself ("take a photo of yourself").
 - **His own browser tab group:** load the `browser-extension` folder in Chrome or Edge (unpacked) and pair it in
   Settings → Browser; he then works in a collapsed "Jarvis" tab group when you ask him to use the browser.
+- **Games:** "let's play chess" (or "Connect Four") opens a little page in your browser, served only on your own
+  PC, where you play against him: beginner to expert. Ask him how you're doing, or for a hint, and he can see the
+  position. The chess engine is built on [chess.js](https://github.com/jhlywa/chess.js) (BSD-2).
+- **Things inside the orb:** ask him to explain how things are connected, show a timeline, or show a picture, and
+  the orb expands: its dots become a web of nodes, a timeline, or the image itself, then it shrinks back.
+- **Looking back (off by default):** in Settings → Local history you can let him remember what you copied and
+  take small screen snapshots (about one every five minutes, kept for a day), so "what was that link I copied?" or
+  "what was I looking at at three?" work. Stored only on your PC, wiped when you switch them off.
+- **Speaks up on his own:** a heads-up shortly before a calendar meeting, with the drive time added when the event
+  has a place and your home address is saved ("time to leave"). Turn it off in Settings → Nudges.
+- **Per-app rules:** in Settings, make him silent, brief, or careful (ask before acting) whenever a given app is in
+  front, for example silent while a game is up.
+- **Morning briefing:** Settings can create a scheduled routine: weather, calendar, travel and headlines.
+- **Offline commands:** with no internet or no ElevenLabs key, voice still works for the free-mode commands (time,
+  timers, volume, opening apps) using the offline recognizer that also handles the wake word.
+- **Updates:** Jarvis checks GitHub for a newer release and offers to install it (Windows: it downloads the
+  installer, checks its checksum, and restarts Jarvis). Turn the check off in Settings → General.
 - **Modes:** the safety mode and personality (including "Ultron mode": say "enable Ultron mode") are in Settings.
 - **Screen shares and recordings (Windows):** by default Jarvis is visible in screenshots, recordings and screen
   shares. Turn that off in Settings → Display. He cannot appear over *exclusive*-fullscreen games, only borderless
@@ -125,6 +142,17 @@ time: `xdotool`, `xclip`, `x11-utils`, `x11-xserver-utils`, `imagemagick`, and o
 - Linux support is newer and less tested than Windows: messaging-app profiles are Windows-only, and the Wayland
   limits above apply. On Linux, "who is in front" and window features need an X11 session.
 - No macOS support.
+
+## Development
+
+- Rust tests: `cargo test --workspace` (from `jarvis-rs`). UI type check: `cd jarvis && npm run typecheck`.
+- The chess and Connect Four engines have their own tests: `node --test jarvis-rs/crates/jarvis-brain/src/games/`.
+
+## Third-party code
+
+- [chess.js](https://github.com/jhlywa/chess.js) (BSD-2-Clause) provides the chess rules for the chess game; its
+  licence is in `jarvis-rs/crates/jarvis-brain/src/games/LICENSE-chessjs.txt`.
+- [Vosk](https://alphacephei.com/vosk/) (Apache-2.0) for offline wake word and offline commands.
 
 ## Licence
 

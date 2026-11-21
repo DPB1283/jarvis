@@ -279,10 +279,71 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     pub orb: Orb,
     pub launch_at_startup: bool,
+    /// Automatic update checks.
+    pub updates: Updates,
+    /// Optional local histories (off by default, stored only on this PC).
+    pub history: History,
+    /// Jarvis speaks up on his own (an upcoming meeting and when to leave).
+    pub nudges: Nudges,
+    /// Per-app behaviour: quieter, shorter or more careful while a given app is in front.
+    pub app_rules: Vec<AppRule>,
+    /// The first-run tour has been shown.
+    pub onboarded: bool,
     /// Which AI answers: Claude (default) or any OpenAI-compatible service.
     pub provider: Provider,
     /// Language Jarvis speaks and understands: en, es, fr, de or yue (Cantonese).
     pub language: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Updates {
+    /// Look for a newer release on GitHub at start-up and every few hours.
+    pub check: bool,
+}
+impl Default for Updates {
+    fn default() -> Self {
+        Self { check: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct History {
+    /// Remember things you copy (text), for "what was that link I copied?". Off by default.
+    pub clipboard: bool,
+    /// Keep small snapshots of your screen every few minutes, for "what was I looking at at 3pm?". Off by default.
+    pub screens: bool,
+}
+impl Default for History {
+    fn default() -> Self {
+        Self { clipboard: false, screens: false }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Nudges {
+    pub enabled: bool,
+    /// How many minutes before a meeting to speak up (he adds travel time when the event has a place).
+    pub lead_minutes: u32,
+}
+impl Default for Nudges {
+    fn default() -> Self {
+        Self { enabled: true, lead_minutes: 10 }
+    }
+}
+
+/// While a program whose name or window title contains `app` is in front: stay silent (text only), keep replies
+/// short, or ask before every action.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AppRule {
+    pub app: String,
+    pub silent: bool,
+    /// "" = keep the normal length, or brief / middle / normal.
+    pub reply_length: String,
+    pub ask_first: bool,
 }
 
 /// The AI behind the assistant. `kind` "anthropic" uses the Anthropic key; "openai" talks to any
@@ -342,6 +403,11 @@ impl Default for Settings {
             hotkeys: Hotkeys::default(),
             orb: Orb::default(),
             launch_at_startup: false,
+            updates: Updates::default(),
+            history: History::default(),
+            nudges: Nudges::default(),
+            app_rules: Vec::new(),
+            onboarded: false,
             provider: Provider::default(),
             language: "en".into(),
         }

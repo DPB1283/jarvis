@@ -17,6 +17,14 @@ export type OrbCorner = "top_right" | "top_left" | "bottom_right" | "bottom_left
 export interface Settings {
   /** How Jarvis usually addresses the user, e.g. "sir", "ma'am", "boss". */
   ultronMode: boolean;
+  updates?: { check: boolean };
+  /** Optional local histories, off by default (Rust app). */
+  history?: { clipboard: boolean; screens: boolean };
+  nudges?: { enabled: boolean; leadMinutes: number };
+  /** While an app is in front: stay silent, shorter replies, or ask first. app matches the program name or window title. */
+  appRules?: Array<{ app: string; silent: boolean; replyLength: "" | "brief" | "middle" | "normal"; askFirst: boolean }>;
+  /** The first-run tour has been shown. */
+  onboarded?: boolean;
   /** Which AI answers (Rust app): Claude (default) or any OpenAI-compatible service. */
   provider?: { kind: "anthropic" | "openai"; baseUrl: string; model: string };
   /** Language Jarvis speaks and understands (Rust app): en, es, fr, de, yue (Cantonese). */

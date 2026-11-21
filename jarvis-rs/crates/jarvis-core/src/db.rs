@@ -42,6 +42,8 @@ impl Db {
                instructions TEXT NOT NULL, schedule TEXT, enabled INTEGER NOT NULL DEFAULT 1, last_run_at TEXT,
                created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+             CREATE TABLE IF NOT EXISTS clipboard_history (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, text TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS screen_history (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, path TEXT NOT NULL, title TEXT NOT NULL DEFAULT '');
              CREATE TABLE IF NOT EXISTS chat_apps (id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL);",
         )?;
         // Added later in the Electron app: screenshot attached to a memory.
@@ -258,6 +260,72 @@ impl Db {
 
     pub fn delete_routine(&self, id: i64) -> Result<bool> {
         Ok(self.conn.lock().execute("DELETE FROM routines WHERE id = ?", [id])? > 0)
+    }
+
+    // --- Optional local histories (off unless the user turns them on in Settings) -----------------------
+
+    /// Remember copied text. Returns false if it is the same as the newest entry.
+    pub fn add_clip(&self, text: &str) -> Result<bool> {
+        let conn = self.conn.lock();
+        let last: Option<String> = conn.query_row("SELECT text FROM clipboard_history ORDER BY id DESC LIMIT 1", [], |r| r.get(0)).optional()?;
+        if last.as_deref() == Some(text) {
+            return Ok(false);
+        }
+        conn.execute("INSERT INTO clipboard_history (ts, text) VALUES (?, ?)", params![now_iso(), text])?;
+        Ok(true)
+    }
+
+    /// Newest first; `query` filters by substring.
+    pub fn recent_clips(&self, query: Option<&str>, limit: usize) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock();
+        let like = format!("%{}%", query.unwrap_or("").replace('%', "").replace('_', ""));
+        let mut st = conn.prepare("SELECT ts, text FROM clipboard_history WHERE text LIKE ? ORDER BY id DESC LIMIT ?")?;
+        let rows = st.query_map(params![like, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Keep at most `keep` entries and nothing older than `cutoff` (an ISO timestamp).
+    pub fn prune_clips(&self, keep: usize, cutoff: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM clipboard_history WHERE ts < ?", [cutoff])?;
+        conn.execute("DELETE FROM clipboard_history WHERE id NOT IN (SELECT id FROM clipboard_history ORDER BY id DESC LIMIT ?)", [keep as i64])?;
+        Ok(())
+    }
+
+    pub fn clear_clips(&self) -> Result<usize> {
+        Ok(self.conn.lock().execute("DELETE FROM clipboard_history", [])?)
+    }
+
+    pub fn add_screen(&self, path: &str, title: &str) -> Result<()> {
+        self.conn.lock().execute("INSERT INTO screen_history (ts, path, title) VALUES (?, ?, ?)", params![now_iso(), path, title])?;
+        Ok(())
+    }
+
+    /// Newest first: (ts, path, title).
+    pub fn recent_screens(&self, limit: usize) -> Result<Vec<(String, String, String)>> {
+        let conn = self.conn.lock();
+        let mut st = conn.prepare("SELECT ts, path, title FROM screen_history ORDER BY id DESC LIMIT ?")?;
+        let rows = st.query_map([limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Drop entries older than `cutoff` or beyond the newest `keep`; returns the file paths to delete.
+    pub fn prune_screens(&self, keep: usize, cutoff: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut st = conn.prepare("SELECT path FROM screen_history WHERE ts < ? OR id NOT IN (SELECT id FROM screen_history ORDER BY id DESC LIMIT ?)")?;
+        let paths = st.query_map(params![cutoff, keep as i64], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(st);
+        conn.execute("DELETE FROM screen_history WHERE ts < ? OR id NOT IN (SELECT id FROM screen_history ORDER BY id DESC LIMIT ?)", params![cutoff, keep as i64])?;
+        Ok(paths)
+    }
+
+    pub fn clear_screens(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut st = conn.prepare("SELECT path FROM screen_history")?;
+        let paths = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(st);
+        conn.execute("DELETE FROM screen_history", [])?;
+        Ok(paths)
     }
 
     pub fn mark_routine_run(&self, id: i64) -> Result<()> {

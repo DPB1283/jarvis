@@ -90,6 +90,32 @@ pub async fn handle_invoke(ctx: &Ctx, channel: &str, args: Vec<Value>) -> Result
             Value::Null
         }
 
+        // Updates
+        "update:status" => crate::update::status(),
+        "update:check" => crate::update::check().await?,
+        "update:install" => {
+            crate::update::install().await?;
+            Value::Null
+        }
+
+        // The "morning briefing" routine: created once, and updated if it already exists.
+        "routines:add-briefing" => {
+            let time: String = arg(&args, 0, "time")?;
+            let days: Vec<u8> = arg(&args, 1, "days")?;
+            let existing = db.list_routines()?.into_iter().find(|r| r.name == "Morning briefing").map(|r| r.id);
+            let routine = RoutineUpsert {
+                id: existing,
+                name: "Morning briefing".into(),
+                triggers: vec!["morning briefing".into(), "brief me".into(), "how does my day look".into()],
+                instructions: "Give me my morning briefing, short and spoken: the weather for my home city today, my calendar for today (and how long it takes to get to my first event if it has a place), and the top few headlines. If something is not set up, skip it without fuss.".into(),
+                schedule: Some(jarvis_core::model::Schedule { time, days }),
+                enabled: true,
+            };
+            let saved = db.upsert_routine(&routine)?;
+            ctx.bus.emit(Event::RoutinesChanged {});
+            json!(saved)
+        }
+
         "chatapps:list" => json!({ "builtin": crate_builtin_chat_apps(), "custom": db.list_custom_chat_apps()? }),
         "chatapps:upsert" => {
             let p: ChatAppProfile = arg(&args, 0, "chat app profile")?;

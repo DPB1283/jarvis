@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Four against Jarvis</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#2a313c; --text:#e6edf3; --dim:#8b97a6; --teal:#2dd4bf; --you:#f5d66f; --him:#ff5f5f; --board:#1d4ed8; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, "Segoe UI", sans-serif; display:flex; justify-content:center; min-height:100vh; }
+  main { width:min(96vw, 900px); padding:18px; display:grid; grid-template-columns:minmax(300px, 540px) 1fr; gap:22px; align-items:start; }
+  @media (max-width: 800px) { main { grid-template-columns:1fr; } }
+  h1 { grid-column:1/-1; margin:0; font-size:20px; font-weight:600; } h1 span { color:var(--teal); }
+  #board { background:var(--board); border-radius:12px; padding:10px; display:grid; grid-template-columns:repeat(7, 1fr); gap:8px; box-shadow:0 8px 24px #0008; }
+  .col { display:grid; grid-template-rows:repeat(6, auto); gap:8px; min-width:0; cursor:pointer; border-radius:8px; } .col:hover { background:#ffffff14; } .col.full { cursor:not-allowed; }
+  .cell { background:var(--bg); border-radius:50%; aspect-ratio:1; position:relative; box-shadow:inset 0 3px 6px #000a; }
+  .cell.p1 { background:var(--you); } .cell.p2 { background:var(--him); } .cell.win { outline:4px solid #fff; animation:pulse .8s infinite; } .cell.drop { animation:fall .35s ease-in; }
+  @keyframes pulse { 50% { outline-color:#fff4; } } @keyframes fall { from { transform:translateY(-420%); } to { transform:none; } }
+  aside { display:grid; gap:12px; } .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; } .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  label { color:var(--dim); font-size:13px; } select, button { background:#202733; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 10px; font:inherit; cursor:pointer; }
+  button:hover, select:hover { border-color:var(--teal); } button.primary { background:var(--teal); color:#04201c; border-color:var(--teal); font-weight:600; }
+  #status { font-size:17px; min-height:26px; } #status.over { color:var(--teal); font-weight:600; } .thinking { color:var(--teal); animation:blink 1s infinite; } @keyframes blink { 50% { opacity:.4; } }
+  .dot { display:inline-block; width:12px; height:12px; border-radius:50%; vertical-align:-1px; margin-right:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect Four against <span>Jarvis</span></h1>
+  <div id="board" aria-label="Connect Four board"></div>
+  <aside>
+    <div class="panel"><div id="status">Loading…</div></div>
+    <div class="panel row">
+      <label>Difficulty <select id="level">
+        <option value="1">Beginner</option><option value="2">Easy</option><option value="3" selected>Medium</option><option value="4">Hard</option><option value="5">Expert</option>
+      </select></label>
+      <label>Who starts <select id="first"><option value="you">You</option><option value="jarvis">Jarvis</option></select></label>
+      <button class="primary" id="new">New game</button>
+    </div>
+    <div class="panel"><span class="dot" style="background:var(--you)"></span>You &nbsp; <span class="dot" style="background:var(--him)"></span>Jarvis<br><small style="color:var(--dim)">Click a column to drop a piece. Four in a row wins.</small></div>
+  </aside>
+</main>
+<script type="module">
+import { emptyBoard, drop, winner, isFull, legalColumns } from "./c4engine.js";
+
+const NAMES = { 1: "beginner", 2: "easy", 3: "medium", 4: "hard", 5: "expert" };
+const params = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+const boardEl = $("board"), statusEl = $("status");
+const worker = new Worker("./engine-worker.js", { type: "module" });
+let requestId = 0, pending = null;
+worker.onmessage = e => { if (pending && e.data.id === requestId) { const p = pending; pending = null; p(e.data); } };
+const ask = payload => new Promise(resolve => { pending = resolve; worker.postMessage({ ...payload, id: ++requestId }); });
+
+let board = emptyBoard(), turn = 1, busy = false, won = null, moves = 0, lastDrop = null;
+$("level").value = String(Math.min(5, Math.max(1, Number(params.get("level")) || 3)));
+$("first").value = params.get("first") === "jarvis" ? "jarvis" : "you";
+
+function start() {
+  board = emptyBoard(); won = null; moves = 0; lastDrop = null; busy = false;
+  turn = $("first").value === "you" ? 1 : 2;
+  render(); report();
+  if (turn === 2) jarvisMove();
+}
+
+function render() {
+  boardEl.innerHTML = "";
+  const columns = legalColumns(board);
+  for (let c = 0; c < 7; c++) {
+    const col = document.createElement("div");
+    col.className = "col" + (columns.includes(c) ? "" : " full");
+    for (let r = 0; r < 6; r++) {
+      const cell = document.createElement("div");
+      const v = board[r][c];
+      cell.className = "cell" + (v ? ` p${v}` : "");
+      if (lastDrop && lastDrop[0] === r && lastDrop[1] === c) cell.classList.add("drop");
+      if (won && won.cells.some(([rr, cc]) => rr === r && cc === c)) cell.classList.add("win");
+      col.append(cell);
+    }
+    col.addEventListener("click", () => play(c));
+    boardEl.append(col);
+  }
+  statusEl.className = "";
+  if (won) { statusEl.textContent = won.player === 1 ? "You win! Nicely played." : "Jarvis wins this one."; statusEl.className = "over"; }
+  else if (isFull(board)) { statusEl.textContent = "A draw. The board is full."; statusEl.className = "over"; }
+  else if (turn === 2) { statusEl.textContent = "Jarvis is thinking…"; statusEl.className = "thinking"; }
+  else statusEl.textContent = "Your move.";
+}
+
+function place(col, player) {
+  const row = drop(board, col, player);
+  if (row < 0) return false;
+  lastDrop = [row, col]; moves++;
+  won = winner(board);
+  turn = 3 - player;
+  render(); report();
+  return true;
+}
+
+function play(col) {
+  if (busy || won || isFull(board) || turn !== 1) return;
+  if (place(col, 1) && !won && !isFull(board)) jarvisMove();
+}
+
+async function jarvisMove() {
+  busy = true; render();
+  const started = performance.now();
+  const reply = await ask({ game: "connect4", board, player: 2, level: Number($("level").value) });
+  const wait = 450 - (performance.now() - started);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  busy = false;
+  if (reply.col != null && !won) place(reply.col, 2);
+}
+
+function report() {
+  const state = {
+    game: "connect_four", board, turn: turn === 1 ? "you" : "jarvis", you: "yellow", jarvis: "red", level: NAMES[$("level").value],
+    status: won ? "won" : isFull(board) ? "draw" : "playing", over: !!won || isFull(board),
+    winner: won ? (won.player === 1 ? "you" : "jarvis") : null, moves,
+  };
+  fetch("./state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) }).catch(() => {});
+}
+
+$("new").onclick = start;
+start();
+</script>
+</body>
+</html>
