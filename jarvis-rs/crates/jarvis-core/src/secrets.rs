@@ -1,5 +1,5 @@
-//! API keys the user types into Settings. Stored per Windows user, encrypted with DPAPI, in
-//! `<data dir>/secrets.bin`; never in the repo, never sent to the renderer. Environment / `.env` values
+//! API keys the user types into Settings. On Windows they are encrypted with DPAPI for the current user; on
+//! Linux the file is plain but mode 0600. Either way it is `<data dir>/secrets.bin`; never in the repo, never sent to the renderer. Environment / `.env` values
 //! are only a fallback (and are imported once so existing installs just keep working).
 
 use anyhow::{Context, Result, bail};
@@ -8,11 +8,15 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// The only names that can be stored.
-pub const NAMES: [&str; 4] = [
+pub const NAMES: [&str; 6] = [
     "ANTHROPIC_API_KEY",
     "ELEVENLABS_API_KEY",
     "XWEATHER_CLIENT_ID",
     "XWEATHER_CLIENT_SECRET",
+    "MAPBOX_ACCESS_TOKEN",
+    // Not an API key: the user's home address. Stored here so it is encrypted, kept out of settings.json,
+    // and never sent to the model (see tools/travel.rs).
+    "HOME_ADDRESS",
 ];
 
 static STORE: Mutex<Option<BTreeMap<String, String>>> = Mutex::new(None);
@@ -39,9 +43,10 @@ fn protect(data: &[u8], encrypt: bool) -> Result<Vec<u8>> {
     }
 }
 
+/// No DPAPI outside Windows: the file is stored as is, readable only by the owner (mode 0600, see `save`).
 #[cfg(not(windows))]
-fn protect(_: &[u8], _: bool) -> Result<Vec<u8>> {
-    bail!("Secure key storage needs Windows")
+fn protect(data: &[u8], _: bool) -> Result<Vec<u8>> {
+    Ok(data.to_vec())
 }
 
 fn read() -> BTreeMap<String, String> {
@@ -62,6 +67,11 @@ fn save(map: &BTreeMap<String, String>) -> Result<()> {
     let path = file();
     let temp = path.with_extension("bin.tmp");
     std::fs::write(&temp, encrypted).context("Could not write the key store")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600)).context("Could not restrict the key store")?;
+    }
     std::fs::rename(&temp, &path).context("Could not save the key store")?;
     Ok(())
 }
@@ -144,12 +154,15 @@ pub fn import_env() {
     }
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn dpapi_round_trip_hides_the_value() {
+        if cfg!(not(windows)) {
+            return;
+        }
         let secret = b"sk-test-1234567890";
         let encrypted = protect(secret, true).unwrap();
         assert!(!encrypted.windows(secret.len()).any(|w| w == secret));

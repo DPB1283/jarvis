@@ -3,12 +3,22 @@
 
 export type SafetyMode = "ask_all" | "ask_unsafe" | "full_access";
 export type ReplyLength = "brief" | "middle" | "normal";
+export type Language = "en" | "es" | "fr" | "de" | "yue";
+export const LANGUAGES: ReadonlyArray<readonly [Language, string]> = [
+  ["en", "English"],
+  ["es", "Español (Spanish)"],
+  ["fr", "Français (French)"],
+  ["de", "Deutsch (German)"],
+  ["yue", "廣東話 (Cantonese)"],
+];
 export type CaptionPosition = "below_orb" | "bottom_center";
 export type OrbCorner = "top_right" | "top_left" | "bottom_right" | "bottom_left";
 
 export interface Settings {
   /** How Jarvis usually addresses the user, e.g. "sir", "ma'am", "boss". */
   ultronMode: boolean;
+  /** Language Jarvis speaks and understands (Rust app): en, es, fr, de, yue (Cantonese). */
+  language?: Language;
   userTitle: string;
   /** The user's name; used now and then alongside the title. "" = not set. */
   userName: string;
@@ -62,6 +72,8 @@ export interface Settings {
     newsRegion: string;
     /** "neutral": national/world headlines from wire services (Reuters, AP, AFP). "all": every outlet. */
     newsSources: "neutral" | "all";
+    /** Let Jarvis show maps (Mapbox) on screen. Rust app. */
+    showMaps?: boolean;
   };
   /** Game mode: quiet while a fullscreen game runs (no chimes, orb hidden, no follow-up listening). Reminders and timers still speak. */
   gameMode: { mode: "auto" | "on" | "off" };
@@ -103,6 +115,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   ultronMode: false,
+  language: "en",
   userTitle: "sir",
   userName: "",
   captions: { enabled: true, position: "below_orb", size: 15 },

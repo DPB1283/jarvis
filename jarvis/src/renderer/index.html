@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
     <title>Jarvis</title>
     <link rel="stylesheet" href="./style.css">
   </head>
@@ -19,6 +19,11 @@
         <span id="activity-percent" class="activity-percent" hidden></span>
         <div class="activity-bar" aria-hidden="true"><div id="activity-fill" class="activity-fill"></div></div>
       </div>
+      <figure id="map-card" class="map-card" data-hit hidden>
+        <button id="map-close" class="map-close" type="button" aria-label="Close map" title="Close map">×</button>
+        <img id="map-image" alt="">
+        <figcaption><strong id="map-title"></strong><span id="map-caption"></span></figcaption>
+      </figure>
       <span id="dictation-status" class="dictation-status" hidden>Dictating</span>
       <span id="full-access" class="full-access" hidden>Full access</span>
       <section id="captions" class="captions" aria-live="polite" hidden>

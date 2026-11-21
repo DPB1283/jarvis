@@ -477,11 +477,13 @@ impl Runtime {
             state: JarvisState::Listening,
         });
         let silence = self.settings.conversation.end_of_speech_seconds;
+        let language = self.settings.language_code();
         tokio::spawn(transcribe(
             receiver,
             self.transcripts.clone(),
             generation,
             silence,
+            language,
             stop,
         ));
     }
@@ -705,9 +707,10 @@ impl Runtime {
             preview,
         });
         let voice = self.settings.voice.clone();
+        let language = self.settings.language_code();
         let completed = self.completed.clone();
         tokio::spawn(async move {
-            let result = stream_speech(&client, &output, &text, &voice, &id, &stop).await;
+            let result = stream_speech(&client, &output, &text, &voice, &id, language, &stop).await;
             let _ = completed.send((generation, result)).await;
         });
     }
@@ -888,6 +891,7 @@ mod live_tests {
             "Voice check.",
             &settings.voice,
             &settings.voice.voice_id,
+            "en",
             &CancellationToken::new(),
         )
         .await
@@ -911,7 +915,7 @@ mod live_tests {
         let (audio, frames) = mpsc::channel(6);
         let (changes, mut updates) = mpsc::channel(16);
         let stop = CancellationToken::new();
-        let worker = tokio::spawn(transcribe(frames, changes, 1, 0.7, stop.clone()));
+        let worker = tokio::spawn(transcribe(frames, changes, 1, 0.7, "en", stop.clone()));
         let feed = tokio::spawn(async move {
             for chunk in samples.chunks(1600) {
                 if audio.send(chunk.to_vec()).await.is_err() {

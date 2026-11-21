@@ -9,6 +9,16 @@ const END_PHRASES: &[&str] = &[
     "forget it", "forget that", "forget about it",
     "ignore me", "ignore that", "scratch that", "disregard", "disregard that", "cancel", "cancel that",
     "that's all", "that is all", "that's it", "that'll be all", "that will be all", "that's everything",
+    // Spanish
+    "olvídalo", "olvidalo", "no importa", "déjalo", "dejalo", "no te preocupes", "eso es todo", "nada más", "cancela", "cancelar",
+    "no gracias", "da igual",
+    // French
+    "laisse tomber", "oublie ça", "oublie", "pas grave", "c'est tout", "rien d'autre", "annule", "non merci", "tant pis",
+    // German
+    "vergiss es", "vergiss das", "schon gut", "egal", "das war's", "das wars", "nichts weiter", "abbrechen", "nein danke", "lass es",
+    "macht nichts",
+    // Cantonese
+    "算啦", "算數", "唔使喇", "唔使啦",
     "nothing else", "i'm good", "i am good", "i'm fine", "all good", "no thanks", "no thank you",
     "not now", "not right now", "false alarm", "wrong person", "i wasn't talking to you", "not talking to you",
     "go back to sleep", "go to sleep", "as you were", "carry on", "dismissed", "you're dismissed", "stand down",
@@ -21,10 +31,18 @@ const WHOLE_PHRASES: &[&str] = &[
     "ok", "okay", "cool", "great", "perfect", "nice", "got it", "understood", "noted", "alright", "all right",
     "bye", "goodbye", "bye bye", "good night", "goodnight", "night", "see you", "see ya", "later", "see you later",
     "go away", "leave me alone", "never mind thanks",
+    // Spanish
+    "para", "basta", "silencio", "calla", "cállate", "nada", "gracias", "vale", "listo", "adiós", "hasta luego", "buenas noches",
+    // French
+    "arrête", "arrete", "silence", "tais-toi", "rien", "merci", "d'accord", "c'est bon", "au revoir", "bonne nuit", "non", "stop",
+    // German
+    "stopp", "halt", "ruhe", "sei still", "nichts", "danke", "gut", "tschüss", "gute nacht", "nein", "danke schön",
+    // Cantonese
+    "停", "唔該", "多謝", "冇嘢", "算啦", "算數", "好啦", "拜拜", "晚安", "唔使", "唔好講",
 ];
 
 const LEADING_FILLERS: &[&str] = &["oh", "ah", "um", "umm", "uh", "uhh", "er", "actually", "well", "okay", "ok", "alright", "right", "jarvis", "hey", "so"];
-const TRAILING_FILLERS: &[&str] = &["jarvis", "then", "sorry", "please", "thanks", "thank you", "mate", "buddy", "bud", "man", "for now", "now"];
+const TRAILING_FILLERS: &[&str] = &["jarvis", "gracias", "por favor", "merci", "s'il te plait", "s'il vous plait", "danke", "bitte", "then", "sorry", "please", "thanks", "thank you", "mate", "buddy", "bud", "man", "for now", "now"];
 
 pub fn normalise(text: &str) -> String {
     let lower = text.to_lowercase().replace(['\u{2019}', '\u{2018}', '`'], "'");
@@ -42,7 +60,7 @@ pub fn normalise(text: &str) -> String {
             _ => no_tags.push(c),
         }
     }
-    let cleaned: String = no_tags.chars().map(|c| if c.is_ascii_alphanumeric() || c == '\'' || c == ' ' { c } else { ' ' }).collect();
+    let cleaned: String = no_tags.chars().map(|c| if c.is_alphanumeric() || c == '\'' || c == ' ' { c } else { ' ' }).collect();
     cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -114,6 +132,21 @@ mod tests {
             "Okay, what's the weather?", "Is that all the news?", "Open Discord, thanks", "Message Sam, thanks a lot",
         ] {
             assert!(!is_dismissal(s), "should keep: {s}");
+        }
+    }
+
+    #[test]
+    fn dismissals_work_in_spanish_french_german_and_cantonese() {
+        for phrase in [
+            "Olvídalo.", "no importa, gracias", "Gracias", "Basta", "Laisse tomber", "Merci !", "Annule ça, non merci", "Au revoir",
+            "Vergiss es", "Danke schön.", "Schon gut", "Tschüss", "唔該。", "算啦！", "多謝", "拜拜",
+        ] {
+            assert!(is_dismissal(phrase), "should dismiss: {phrase}");
+        }
+        for phrase in [
+            "Abre el navegador", "Ouvre le navigateur", "Öffne den Browser", "幫我開瀏覽器", "Quel temps fait-il", "¿Qué hora es?",
+        ] {
+            assert!(!is_dismissal(phrase), "must not dismiss: {phrase}");
         }
     }
 }

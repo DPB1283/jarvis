@@ -20,10 +20,23 @@ pub fn jarvis_home() -> PathBuf {
     if cfg!(debug_assertions) && dev.exists() {
         return dev.canonicalize().unwrap_or(dev);
     }
-    // Installed builds: %APPDATA%\Jarvis
-    std::env::var("APPDATA")
-        .map(|a| PathBuf::from(a).join("Jarvis"))
-        .unwrap_or_else(|_| PathBuf::from("."))
+    // Installed builds: the per-user settings folder (see `config_root`).
+    config_root().map(|root| root.join("Jarvis")).unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Per-user settings folder: %APPDATA% on Windows, $XDG_CONFIG_HOME (or ~/.config) elsewhere.
+fn config_root() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+    }
 }
 
 pub fn data_dir() -> PathBuf {

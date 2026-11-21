@@ -357,3 +357,36 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
   .activity, .activity-spinner, .activity[data-indeterminate] .activity-fill { animation: none; }
   .activity[data-indeterminate] .activity-fill { width: 50%; }
 }
+
+/* A map card (route or place) next to the orb. */
+.map-card {
+  position: relative;
+  margin: 0;
+  width: min(100%, 22rem);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--aqua) 30%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  animation: activity-in .18s ease-out;
+}
+.map-card[hidden] { display: none; }
+.map-card img { display: block; width: 100%; height: auto; aspect-ratio: 5 / 3; object-fit: cover; background: var(--panel); }
+.map-card figcaption { display: grid; gap: 2px; padding: 7px 10px 8px; font: 12px/1.35 system-ui, sans-serif; }
+.map-card figcaption strong { color: var(--glow); font-weight: 600; overflow-wrap: anywhere; }
+.map-card figcaption span { color: var(--aqua); }
+.map-close {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, black 55%, transparent);
+  color: #fff;
+  font: 16px/1 "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.address-box { display: grid; gap: 6px; }
+.address-box .actions { align-items: center; }

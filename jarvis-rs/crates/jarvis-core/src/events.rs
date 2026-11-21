@@ -93,6 +93,8 @@ pub enum Event {
     Dictation { active: bool },
     /// brain → renderer: what he is busy doing right now (a tool running). `progress` is 0..1 when known.
     Activity { text: String, active: bool, progress: Option<f64> },
+    /// brain → renderer: a map to show next to the orb. `image` is a base64 PNG.
+    Map { title: String, caption: String, image: String },
     VirtualPointer { x: i32, y: i32 },
     /// Full list of running timers whenever it changes.
     Timers { timers: Vec<TimerInfo> },
@@ -124,6 +126,7 @@ impl Event {
             Event::RoutinesChanged {} => "routines_changed",
             Event::Dictation { .. } => "dictation",
             Event::Activity { .. } => "activity",
+            Event::Map { .. } => "map",
             Event::VirtualPointer { .. } => "virtual_pointer",
             Event::Timers { .. } => "timers",
             Event::TimerDone { .. } => "timer_done",

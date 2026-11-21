@@ -1,6 +1,6 @@
 import { mountBrowserSettings } from "./browser-settings";
 import { mountApiKeys } from "./api-keys";
-import { DEFAULT_SETTINGS, type Settings, type SettingsPatch, type TimerInfo, type VoiceOption } from "../shared/settings";
+import { DEFAULT_SETTINGS, LANGUAGES, type Language, type Settings, type SettingsPatch, type TimerInfo, type VoiceOption } from "../shared/settings";
 import { mountMemory } from "./memory";
 import { mountRoutines } from "./routines";
 import { mountChatApps } from "./chat-apps";
@@ -122,6 +122,66 @@ export function mountSettings() {
     ["neutral", "Wire services only"],
     ["all", "All outlets"],
   ]);
+  const showMaps = input(home, "Let Jarvis show maps and routes on screen", "checkbox");
+
+  // Home address: private. It is kept encrypted, hidden here until you press Show, never sent to the AI, and
+  // only used by Jarvis to work out travel times from home. It saves with its own buttons, not with Save settings.
+  const address = document.createElement("input");
+  address.type = "password";
+  address.autocomplete = "off";
+  address.spellcheck = false;
+  address.placeholder = "Not saved";
+  const addressButtons = document.createElement("span");
+  addressButtons.className = "actions";
+  const addressButton = (label: string) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    return b;
+  };
+  const addressShow = addressButton("Show");
+  const addressSave = addressButton("Save address");
+  const addressRemove = addressButton("Remove");
+  const addressStatus = document.createElement("small");
+  addressStatus.setAttribute("role", "status");
+  addressButtons.append(addressShow, addressSave, addressRemove, addressStatus);
+  const addressBox = document.createElement("span");
+  addressBox.className = "address-box";
+  addressBox.append(address, addressButtons);
+  field(home, "Home address (private, for travel times)", addressBox);
+  let addressSaved = false;
+  function addressView(text: string) {
+    address.type = "password";
+    addressShow.textContent = "Show";
+    addressStatus.textContent = text;
+  }
+  void api.invoke("address:get").then(value => {
+    addressSaved = Boolean(value);
+    address.value = value ?? "";
+    addressView(addressSaved ? "Saved and hidden" : "Not saved");
+  }).catch(() => addressView("Could not load"));
+  addressShow.addEventListener("click", () => {
+    const hidden = address.type === "password";
+    address.type = hidden ? "text" : "password";
+    addressShow.textContent = hidden ? "Hide" : "Show";
+  });
+  addressSave.addEventListener("click", async () => {
+    const value = address.value.trim();
+    if (!value) { addressStatus.textContent = "Type an address first"; return; }
+    try {
+      await api.invoke("address:set", value);
+      addressSaved = true;
+      addressView("Saved and hidden");
+    } catch { addressStatus.textContent = "Could not save"; }
+  });
+  addressRemove.addEventListener("click", async () => {
+    try {
+      await api.invoke("address:clear");
+      addressSaved = false;
+      address.value = "";
+      addressView("Removed");
+    } catch { addressStatus.textContent = "Could not remove"; }
+  });
   newsSources.title = "Wire services: Reuters, AP and AFP";
 
   const personality = group("general", "Personality");
@@ -133,6 +193,7 @@ export function mountSettings() {
   userName.autocomplete = "given-name";
   const ultron = input(personality, "Ultron mode", "checkbox");
   const sarcasm = range(personality, "Sarcasm", 0, 10, 1);
+  const language = select(personality, "Language (he speaks and understands it)", LANGUAGES.map(([code, name]): [string, string] => [code, name]));
   const reply = select(personality, "Reply length", [["brief", "Brief (one short sentence)"], ["middle", "Middle brief (one or two sentences)"], ["normal", "Normal"]]);
 
   const speech = group("voice", "Speech");
@@ -330,7 +391,9 @@ export function mountSettings() {
     units.value = location.units;
     newsRegion.value = location.newsRegion;
     newsSources.value = location.newsSources ?? "neutral";
+    showMaps.checked = location.showMaps !== false;
     ultron.checked = value.ultronMode;
+    language.value = value.language ?? "en";
     title.value = value.userTitle;
     userName.value = value.userName ?? "";
     sarcasm(value.personality.sarcasm);
@@ -422,14 +485,15 @@ export function mountSettings() {
     }
     const patch: SettingsPatch = {
       ...changedFields(
-        { ultronMode: saved.ultronMode, userTitle: saved.userTitle, userName: saved.userName ?? "", safetyMode: saved.safetyMode, launchAtStartup: saved.launchAtStartup },
-        { ultronMode: ultron.checked, userTitle, userName: userName.value.trim(), safetyMode: safety.value as Settings["safetyMode"], launchAtStartup: startup.checked },
+        { ultronMode: saved.ultronMode, language: saved.language ?? "en", userTitle: saved.userTitle, userName: saved.userName ?? "", safetyMode: saved.safetyMode, launchAtStartup: saved.launchAtStartup },
+        { ultronMode: ultron.checked, language: language.value as Language, userTitle, userName: userName.value.trim(), safetyMode: safety.value as Settings["safetyMode"], launchAtStartup: startup.checked },
       ),
       location: changedFields(saved.location ?? DEFAULT_SETTINGS.location, {
         city: city.value.trim(),
         units: units.value === "imperial" ? "imperial" : "metric",
         newsRegion: newsRegion.value.toUpperCase(),
         newsSources: newsSources.value === "all" ? "all" : "neutral",
+        showMaps: showMaps.checked,
       }),
       captions: changedFields(saved.captions, { enabled: captions.checked, position: position.value as Settings["captions"]["position"], size: captionSize() }),
       voice: changedFields(saved.voice, { voiceId: voice.value, speed: speed(), stability: stability(), volume: volume(), muted: muted.checked, enabled: voiceOn.checked }),

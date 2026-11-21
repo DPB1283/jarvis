@@ -1,4 +1,4 @@
-use super::{ToolDef, ToolOutput, safe};
+use super::{NoWindow, ToolDef, ToolOutput, safe};
 use crate::Ctx;
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
@@ -16,10 +16,12 @@ async fn run(ctx: Ctx, name: &str, input: Value) -> Result<ToolOutput> {
     } else {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/utilities.cjs")
     };
-    let node = if packaged.join("node.exe").is_file() {
-        packaged.join("node.exe")
+    // A Node bundled next to the helpers (Windows installer), else the one on PATH.
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+    let node = if packaged.join(node_name).is_file() {
+        packaged.join(node_name)
     } else {
-        PathBuf::from("node.exe")
+        PathBuf::from(node_name)
     };
     ensure!(script.is_file(), "Jarvis utilities are missing");
     let calendar = if name == "calendar_events" {
@@ -30,7 +32,7 @@ async fn run(ctx: Ctx, name: &str, input: Value) -> Result<ToolOutput> {
     let payload = serde_json::to_vec(&json!({"name":name,"input":input,"calendar":calendar}))?;
     let mut child = tokio::process::Command::new(node)
         .arg(script)
-        .creation_flags(0x08000000)
+        .no_window()
         .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

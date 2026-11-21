@@ -165,12 +165,14 @@ pub struct Location {
     pub units: Units,
     pub news_region: String,
     pub news_sources: NewsSources,
+    /// Allow Jarvis to show maps (Mapbox) on screen.
+    pub show_maps: bool,
 }
 impl Default for Location {
     fn default() -> Self {
         let region = std::env::var("JARVIS_REGION").unwrap_or_else(|_| "US".into()).to_uppercase();
         let units = if ["US", "LR", "MM"].contains(&region.as_str()) { Units::Imperial } else { Units::Metric };
-        Self { city: String::new(), units, news_region: region, news_sources: NewsSources::Neutral }
+        Self { city: String::new(), units, news_region: region, news_sources: NewsSources::Neutral, show_maps: true }
     }
 }
 
@@ -277,6 +279,23 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     pub orb: Orb,
     pub launch_at_startup: bool,
+    /// Language Jarvis speaks and understands: en, es, fr, de or yue (Cantonese).
+    pub language: String,
+}
+
+/// The languages Jarvis supports: (code, English name). The same codes ElevenLabs speech recognition and
+/// `eleven_v4_turbo` accept.
+pub const LANGUAGES: [(&str, &str); 5] = [("en", "English"), ("es", "Spanish"), ("fr", "French"), ("de", "German"), ("yue", "Cantonese")];
+
+impl Settings {
+    /// The language code, falling back to English for anything unknown.
+    pub fn language_code(&self) -> &'static str {
+        LANGUAGES.iter().find(|(code, _)| *code == self.language).map_or("en", |(code, _)| code)
+    }
+
+    pub fn language_name(&self) -> &'static str {
+        LANGUAGES.iter().find(|(code, _)| *code == self.language).map_or("English", |(_, name)| name)
+    }
 }
 
 impl Default for Settings {
@@ -300,6 +319,7 @@ impl Default for Settings {
             hotkeys: Hotkeys::default(),
             orb: Orb::default(),
             launch_at_startup: false,
+            language: "en".into(),
         }
     }
 }
@@ -421,5 +441,25 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"hotkeys":{"talk":"Control+Space","settings":"Control+Alt+J"}}"#).unwrap();
         assert_eq!(s.hotkeys.mute, "Control+Alt+M");
         assert_eq!(s.hotkeys.talk, "Control+Space");
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn language_defaults_to_english_and_rejects_unknown_codes() {
+        let mut s = Settings::default();
+        assert_eq!((s.language_code(), s.language_name()), ("en", "English"));
+        for (code, name) in [("es", "Spanish"), ("fr", "French"), ("de", "German"), ("yue", "Cantonese")] {
+            s.language = code.into();
+            assert_eq!((s.language_code(), s.language_name()), (code, name));
+        }
+        s.language = "xx".into();
+        assert_eq!(s.language_code(), "en");
+        // Older settings files without the field still load.
+        let old: Settings = serde_json::from_str(r#"{"userTitle":"sir"}"#).unwrap();
+        assert_eq!(old.language, "en");
     }
 }

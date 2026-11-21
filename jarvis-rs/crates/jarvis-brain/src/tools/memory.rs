@@ -207,7 +207,7 @@ pub fn tools() -> Vec<ToolDef> {
                 "follow_up_seconds":{"type":"integer","minimum":0,"maximum":300},"end_of_speech_seconds":{"type":"number","minimum":0.4,"maximum":3},
                 "captions":{"type":"boolean"},"voice_muted":{"type":"boolean"},"sarcasm":{"type":"integer","minimum":0,"maximum":10},
                 "reply_length":{"type":"string","enum":["brief","middle","normal"]},"safety_mode":{"type":"string","enum":["ask_all","ask_unsafe","full_access"]},
-                "wake_word":{"type":"boolean"}}}),
+                "wake_word":{"type":"boolean"},"language":{"type":"string","enum":["en","es","fr","de","yue"],"description":"Language to speak: en English, es Spanish, fr French, de German, yue Cantonese"}}}),
             // Loosening safety always needs the user's explicit OK (unless already full access).
             risk: |ctx, i| {
                 let order = |m: &str| match m { "ask_all" => 0, "ask_unsafe" => 1, _ => 2 };
@@ -236,6 +236,11 @@ pub fn tools() -> Vec<ToolDef> {
                     if let Some(v) = s(&i, "reply_length") { put("personality", "replyLength", json!(v)); }
                     if let Some(v) = s(&i, "safety_mode") { patch_top(&mut put, "safetyMode", json!(v)); }
                     if let Some(v) = b(&i, "wake_word") { put("wakeWord", "enabled", json!(v)); }
+                    if let Some(v) = s(&i, "language") {
+                        if jarvis_core::settings::LANGUAGES.iter().any(|(code, _)| *code == v) {
+                            patch_top(&mut put, "language", json!(v));
+                        }
+                    }
                     // Top-level keys were stashed under a "__top" section; lift them out.
                     let mut patch = Value::Object(patch);
                     if let Some(top) = patch.as_object_mut().and_then(|o| o.remove("__top")) {

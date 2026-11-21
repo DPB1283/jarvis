@@ -12,7 +12,7 @@ serde_json.workspace = true
 tracing.workspace = true
 base64.workspace = true
 
-[dependencies.windows]
+[target.'cfg(windows)'.dependencies.windows]
 workspace = true
 features = [
   "Win32_Foundation",

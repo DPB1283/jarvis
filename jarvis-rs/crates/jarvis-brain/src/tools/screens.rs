@@ -54,13 +54,10 @@ fn scale(w: i32, h: i32) -> f64 {
         .min((1_150_000.0 / (w as f64 * h as f64)).sqrt())
         .min(1.0)
 }
-pub(super) async fn snapshot(rect: Rect) -> Result<Value> {
-    let w = rect.right - rect.left;
-    let h = rect.bottom - rect.top;
-    ensure!(w > 0 && h > 0, "Window is not visible");
-    let scale = scale(w, h);
-    let out_w = ((w as f64 * scale) as i32).max(1);
-    let out_h = ((h as f64 * scale) as i32).max(1);
+/// Capture a screen rectangle as base64 JPEG scaled to out_w x out_h.
+#[cfg(windows)]
+async fn grab_jpeg(rect: Rect, out_w: i32, out_h: i32) -> Result<String> {
+    let (w, h) = (rect.right - rect.left, rect.bottom - rect.top);
     let script = format!(
         r#"$ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Drawing
@@ -76,7 +73,101 @@ $o.Save($m,[Drawing.Imaging.ImageFormat]::Jpeg)
         x = rect.left,
         y = rect.top
     );
-    let data = ps(&script).await?;
+    ps(&script).await
+}
+
+/// Save a screen rectangle as a PNG file.
+#[cfg(windows)]
+async fn grab_png(rect: Rect, path: &str) -> Result<()> {
+    ps(&format!(
+        r#"$ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Drawing
+Add-Type -Namespace Display -Name Dpi -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr SetThreadDpiAwarenessContext(System.IntPtr v);'
+[void][Display.Dpi]::SetThreadDpiAwarenessContext([IntPtr](-4))
+$b=New-Object Drawing.Bitmap({w},{h})
+$g=[Drawing.Graphics]::FromImage($b)
+$g.CopyFromScreen({x},{y},0,0,$b.Size)
+$b.Save({path},[Drawing.Imaging.ImageFormat]::Png)"#,
+        w = rect.right - rect.left,
+        h = rect.bottom - rect.top,
+        x = rect.left,
+        y = rect.top,
+        path = psq(path)
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Re-encode a saved image as base64 JPEG at the given size.
+#[cfg(windows)]
+async fn file_jpeg(path: &str, w: i32, h: i32) -> Result<String> {
+    ps(&format!(
+        r#"Add-Type -AssemblyName System.Drawing
+$i=[Drawing.Image]::FromFile({})
+$b=New-Object Drawing.Bitmap($i,{},{})
+$m=New-Object IO.MemoryStream
+$b.Save($m,[Drawing.Imaging.ImageFormat]::Jpeg)
+[Convert]::ToBase64String($m.ToArray())"#,
+        psq(path),
+        w,
+        h
+    ))
+    .await
+}
+
+/// Linux (X11): screenshots use ImageMagick (sudo apt install imagemagick).
+#[cfg(not(windows))]
+async fn magick(program: &str, args: &[String]) -> Result<Vec<u8>> {
+    let output = tokio::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .with_context(|| format!("`{program}` is not installed (needed for screenshots on Linux: sudo apt install imagemagick)"))?;
+    ensure!(output.status.success(), "{program} failed: {}", String::from_utf8_lossy(&output.stderr).trim());
+    Ok(output.stdout)
+}
+
+#[cfg(not(windows))]
+fn crop_geometry(rect: Rect) -> String {
+    format!("{}x{}+{}+{}", rect.right - rect.left, rect.bottom - rect.top, rect.left, rect.top)
+}
+
+#[cfg(not(windows))]
+async fn grab_jpeg(rect: Rect, out_w: i32, out_h: i32) -> Result<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let args = ["-window", "root", "-crop", &crop_geometry(rect), "+repage", "-resize", &format!("{out_w}x{out_h}!"), "jpeg:-"].map(String::from);
+    Ok(STANDARD.encode(magick("import", &args).await?))
+}
+
+#[cfg(not(windows))]
+async fn grab_png(rect: Rect, path: &str) -> Result<()> {
+    let args = ["-window", "root", "-crop", &crop_geometry(rect), "+repage", &format!("png:{path}")].map(String::from);
+    magick("import", &args).await.map(|_| ())
+}
+
+#[cfg(not(windows))]
+async fn file_jpeg(path: &str, w: i32, h: i32) -> Result<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let args = [path.to_owned(), "-resize".into(), format!("{w}x{h}!"), "jpeg:-".into()];
+    Ok(STANDARD.encode(magick("convert", &args).await?))
+}
+
+/// The user's home folder.
+fn home_dir() -> Result<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .context("Missing home folder")
+}
+
+pub(super) async fn snapshot(rect: Rect) -> Result<Value> {
+    let w = rect.right - rect.left;
+    let h = rect.bottom - rect.top;
+    ensure!(w > 0 && h > 0, "Window is not visible");
+    let scale = scale(w, h);
+    let out_w = ((w as f64 * scale) as i32).max(1);
+    let out_h = ((h as f64 * scale) as i32).max(1);
+    let data = grab_jpeg(rect, out_w, out_h).await?;
     ensure!(data.starts_with("/9j/"), "Screenshot capture failed");
     Ok(json!({"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":data}}))
 }
@@ -306,35 +397,22 @@ async fn save(v: &Value, memory: bool, orb: &jarvis_core::settings::Orb) -> Resu
     ))
     .await;
     let r = area(v, orb)?;
-    let mut dir = PathBuf::from(std::env::var_os("USERPROFILE").context("Missing user profile")?)
-        .join("Pictures/Jarvis Screenshots");
+    let mut dir = home_dir()?.join("Pictures/Jarvis Screenshots");
     if memory {
         dir.push("Memories");
     }
     std::fs::create_dir_all(&dir)?;
     let file = dir.join(format!("Screenshot {}.png", uuid::Uuid::new_v4()));
     let path = file.to_string_lossy();
-    ps(&format!(r#"$ErrorActionPreference='Stop'
-Add-Type -AssemblyName System.Drawing
-Add-Type -Namespace Display -Name Dpi -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr SetThreadDpiAwarenessContext(System.IntPtr v);'
-[void][Display.Dpi]::SetThreadDpiAwarenessContext([IntPtr](-4))
-$b=New-Object Drawing.Bitmap({w},{h})
-$g=[Drawing.Graphics]::FromImage($b)
-$g.CopyFromScreen({x},{y},0,0,$b.Size)
-$b.Save({path},[Drawing.Imaging.ImageFormat]::Png)"#,w=r.right-r.left,h=r.bottom-r.top,x=r.left,y=r.top,path=psq(&path))).await?;
+    grab_png(r, &path).await?;
     *LATEST.lock().unwrap() = Some(file.clone());
     if memory {
-        let saved_view = ps(&format!(
-            r#"Add-Type -AssemblyName System.Drawing
-$i=[Drawing.Image]::FromFile({})
-$b=New-Object Drawing.Bitmap($i,{},{})
-$m=New-Object IO.MemoryStream
-$b.Save($m,[Drawing.Imaging.ImageFormat]::Jpeg)
-[Convert]::ToBase64String($m.ToArray())"#,
-            psq(&path),
-            ((r.right - r.left) as f64 * scale(r.right - r.left, r.bottom - r.top)).max(1.) as i32,
-            ((r.bottom - r.top) as f64 * scale(r.right - r.left, r.bottom - r.top)).max(1.) as i32
-        ))
+        let view_scale = scale(r.right - r.left, r.bottom - r.top);
+        let saved_view = file_jpeg(
+            &path,
+            ((r.right - r.left) as f64 * view_scale).max(1.) as i32,
+            ((r.bottom - r.top) as f64 * view_scale).max(1.) as i32,
+        )
         .await?;
         Ok(ToolOutput::Blocks(vec![
             json!({"type":"text","text":format!("Saved {path}. Use remember with image_path.")}),

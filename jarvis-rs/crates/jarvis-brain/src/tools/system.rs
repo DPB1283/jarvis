@@ -11,7 +11,7 @@ use super::ps::{WIN_NATIVE, ps, ps_t, psq, run_ps};
 use super::{ToolDef, ToolOutput, b, n, s, safe, unsafe_};
 
 fn home() -> PathBuf {
-    PathBuf::from(std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into()))
+    PathBuf::from(std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap_or_else(|_| ".".into()))
 }
 
 /// Expand ~, %ENV% and known folder names ("Downloads/report.pdf"); relative paths are under the home folder.
@@ -471,6 +471,7 @@ pub fn _unused(_: Value) -> ToolOutput {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
     #[test]
     fn resolves_known_folders() {
         let h = home();

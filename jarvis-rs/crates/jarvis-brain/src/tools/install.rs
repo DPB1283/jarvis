@@ -2,14 +2,12 @@
 //! Runs winget / pip / npm directly with an argument list, never through a shell or an encoded PowerShell
 //! command, so a package name can't smuggle in other commands (and Defender doesn't see a script).
 
-use super::{ToolDef, safe, unsafe_};
+use super::{NoWindow, ToolDef, safe, unsafe_};
 use anyhow::{Result, bail, ensure};
 use jarvis_core::Event;
 use serde_json::{Value, json};
 use std::{process::Stdio, time::Duration};
 use tokio::{io::AsyncReadExt, process::Command};
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// A package id or name: starts with a letter or digit, then only the characters real package names use.
 fn valid(name: &str) -> bool {
@@ -32,7 +30,7 @@ async fn run(
     let mut command = Command::new(program);
     command
         .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_window()
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -87,15 +85,19 @@ fn tidy(text: &str) -> String {
     lines[start..].join("\n")
 }
 
+/// The package manager to use: winget on Windows, apt on Linux (a "winget" request on Linux means apt).
 fn manager(v: &Value) -> &str {
-    v["manager"].as_str().unwrap_or("winget")
+    match v["manager"].as_str() {
+        Some("winget") | None => if cfg!(windows) { "winget" } else { "apt" },
+        Some(other) => other,
+    }
 }
 
 pub fn tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "find_package",
-            description: "Search for installable software before installing it. Returns matching winget package ids (use the id with install_app). Use this when you are not sure of the exact id.",
+            description: "Search for installable software before installing it. Returns matching package ids (winget on Windows, apt package names on Linux) (use the id with install_app). Use this when you are not sure of the exact id.",
             schema: || json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"What to look for, e.g. python, vscode, 7zip"}}}),
             risk: safe,
             summary: |v| format!("search for {}", v["query"].as_str().unwrap_or("software")),
@@ -103,13 +105,19 @@ pub fn tools() -> Vec<ToolDef> {
                 Box::pin(async move {
                     let query = v["query"].as_str().unwrap_or_default().trim().to_owned();
                     ensure!(valid(&query), "That is not a valid search");
-                    let (_, output, timed_out) = run(
-                        "winget",
-                        &["search", &query, "--source", "winget", "--accept-source-agreements", "--count", "8"],
-                        Duration::from_secs(60),
-                        None,
-                    )
-                    .await?;
+                    let (_, output, timed_out) = if cfg!(windows) {
+                        run(
+                            "winget",
+                            &["search", &query, "--source", "winget", "--accept-source-agreements", "--count", "8"],
+                            Duration::from_secs(60),
+                            None,
+                        )
+                        .await?
+                    } else {
+                        let (code, found, timed_out) = run("apt-cache", &["search", "--names-only", &query], Duration::from_secs(60), None).await?;
+                        let top = found.lines().take(8).collect::<Vec<_>>().join("\n");
+                        (code, top, timed_out)
+                    };
                     ensure!(!timed_out, "The package search timed out");
                     Ok(if output.is_empty() { "No packages found.".to_owned() } else { output }.into())
                 })
@@ -117,10 +125,10 @@ pub fn tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "install_app",
-            description: "Install software on the user's PC properly instead of sending them to a download page. manager winget (default) installs apps by package id, e.g. Python.Python.3.12, Git.Git, Microsoft.VisualStudioCode, 7zip.7zip. manager pip installs a Python package, npm installs a global npm package. Installs silently. Use find_package first if unsure of the winget id. Only open a website instead when no package exists, and say so.",
+            description: "Install software on the user's PC properly instead of sending them to a download page. manager winget (the default on Windows) installs apps by package id; on Linux the default is apt, which installs by package name (and asks the user for their password). Examples for winget: e.g. Python.Python.3.12, Git.Git, Microsoft.VisualStudioCode, 7zip.7zip. manager pip installs a Python package, npm installs a global npm package. Installs silently. Use find_package first if unsure of the winget id. Only open a website instead when no package exists, and say so.",
             schema: || json!({"type":"object","required":["package"],"properties":{
                 "package":{"type":"string","description":"winget id or name, pip package, or npm package"},
-                "manager":{"type":"string","enum":["winget","pip","npm"]}}}),
+                "manager":{"type":"string","enum":["winget","apt","pip","npm"],"description":"winget on Windows, apt on Linux (default for the OS)"}}}),
             risk: unsafe_,
             summary: |v| format!("install {} with {}", v["package"].as_str().unwrap_or("a package"), manager(v)),
             run: |ctx, v| {
@@ -143,7 +151,9 @@ pub fn tools() -> Vec<ToolDef> {
                             ]);
                             ("winget", a)
                         }
-                        "pip" => ("python", vec!["-m", "pip", "install", &package]),
+                        // Linux: apt needs administrator rights, which pkexec asks the user for with a normal prompt.
+                        "apt" => ("pkexec", vec!["apt-get", "install", "-y", &package]),
+                        "pip" => (if cfg!(windows) { "python" } else { "python3" }, vec!["-m", "pip", "install", &package]),
                         "npm" => ("npm.cmd", vec!["install", "-g", &package]),
                         _ => bail!("Unknown package manager"),
                     };

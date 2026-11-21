@@ -13,6 +13,9 @@ pub mod messaging;
 pub mod ps;
 pub mod system;
 pub mod timers;
+pub mod travel;
+#[cfg(not(windows))]
+pub mod unix;
 pub mod web;
 
 use std::future::Future;
@@ -68,6 +71,20 @@ pub struct ToolDef {
     pub run: fn(Ctx, Value) -> BoxFuture<Result<ToolOutput>>,
 }
 
+/// Run a child process without flashing a console window (Windows); does nothing elsewhere.
+pub(crate) trait NoWindow {
+    fn no_window(&mut self) -> &mut Self;
+}
+impl NoWindow for tokio::process::Command {
+    fn no_window(&mut self) -> &mut Self {
+        #[cfg(windows)]
+        {
+            self.creation_flags(0x0800_0000);
+        }
+        self
+    }
+}
+
 pub fn safe(_: &Ctx, _: &Value) -> Risk {
     Risk::Safe
 }
@@ -84,6 +101,7 @@ pub fn all() -> &'static [ToolDef] {
         v.extend(memory::tools());
         v.extend(timers::tools());
         v.extend(install::tools());
+        v.extend(travel::tools());
         v.extend(web::tools());
         v.extend(browser::tools());
         v.extend(messaging::tools());
@@ -91,6 +109,14 @@ pub fn all() -> &'static [ToolDef] {
         v.extend(clipboard::tools());
         v.extend(activity::tools());
         v.extend(utilities::tools());
+        // Off Windows the PowerShell-based tools are swapped for their Linux versions (same names).
+        #[cfg(not(windows))]
+        {
+            let replacements = unix::tools();
+            let names: Vec<&str> = replacements.iter().map(|t| t.name).collect();
+            v.retain(|t| !names.contains(&t.name) && t.name != "run_powershell");
+            v.extend(replacements);
+        }
         v
     })
 }

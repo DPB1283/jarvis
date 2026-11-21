@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use jarvis_desktop::window;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     ES_PASSWORD, GUITHREADINFO, GWL_STYLE, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo,
     GetWindowLongW, GetWindowThreadProcessId,
@@ -130,6 +131,24 @@ pub fn target() -> Result<usize> {
     if fg.hwnd == 0 || fg.pid == std::process::id() {
         bail!("Focus another app to dictate.");
     }
+    secure_field_check(&fg)?;
+    Ok(fg.hwnd)
+}
+
+/// X11 has no portable way to ask whether the focused field is a password box, so on Linux dictation only
+/// refuses windows that are clearly authentication prompts.
+#[cfg(not(windows))]
+fn secure_field_check(fg: &window::Foreground) -> Result<()> {
+    let title = fg.title.to_lowercase();
+    let program = fg.exe.to_lowercase();
+    if title.contains("password") || title.contains("authenticat") || program.contains("pinentry") || program.contains("polkit") {
+        bail!("Dictation is paused in a password or authentication window.");
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn secure_field_check(_fg: &window::Foreground) -> Result<()> {
     unsafe {
         let hwnd = GetForegroundWindow();
         let tid = GetWindowThreadProcessId(hwnd, None);
@@ -167,7 +186,7 @@ pub fn target() -> Result<usize> {
             bail!("Dictation is paused in a password field.");
         }
     }
-    Ok(fg.hwnd)
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

@@ -99,6 +99,17 @@ pub async fn handle_invoke(ctx: &Ctx, channel: &str, args: Vec<Value>) -> Result
 
         // API keys: the renderer can say a key is set, never read it back.
         "secrets:status" => json!(jarvis_core::secrets::status()),
+        // The private home address (encrypted). The renderer may read it back so the user can check it, but it
+        // is never part of settings or of what the model sees.
+        "address:get" => json!(jarvis_core::secrets::get("HOME_ADDRESS")),
+        "address:set" => {
+            jarvis_core::secrets::set("HOME_ADDRESS", &arg::<String>(&args, 0, "address")?)?;
+            Value::Null
+        }
+        "address:clear" => {
+            jarvis_core::secrets::clear("HOME_ADDRESS")?;
+            Value::Null
+        }
         "secrets:set" => {
             jarvis_core::secrets::set(&arg::<String>(&args, 0, "key name")?, &arg::<String>(&args, 1, "key value")?)?;
             Value::Null

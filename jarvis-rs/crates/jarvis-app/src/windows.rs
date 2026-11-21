@@ -29,6 +29,28 @@ pub fn open_settings(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
+/// Make a window ignore the mouse. On Linux the native window only exists once it has been shown, so a hidden
+/// window is shown for an instant first.
+fn click_through(window: &WebviewWindow) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let hidden = !window.is_visible()?;
+        if hidden {
+            window.show()?;
+        }
+        window.set_ignore_cursor_events(true)?;
+        if hidden {
+            window.hide()?;
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        window.set_ignore_cursor_events(true)?;
+        Ok(())
+    }
+}
+
 pub fn create_hud(app: &AppHandle, orb: &Orb) -> Result<WebviewWindow> {
     let window = WebviewWindowBuilder::new(app, HUD, WebviewUrl::App("index.html".into()))
         .title("Jarvis HUD")
@@ -44,7 +66,7 @@ pub fn create_hud(app: &AppHandle, orb: &Orb) -> Result<WebviewWindow> {
         .visible(false)
         .build()?;
     position_hud(&window, orb)?;
-    window.set_ignore_cursor_events(true)?;
+    click_through(&window)?;
     window.show()?;
     Ok(window)
 }
@@ -114,7 +136,12 @@ pub fn position_hud(window: &WebviewWindow, orb: &Orb) -> Result<()> {
                 .cloned()
         })
         .or(window.primary_monitor()?)
-        .context("HUD has no monitor.")?;
+        .or(monitors.first().cloned());
+    // Some X11 setups report no monitors at all. Leave the orb wherever the system put it instead of failing to start.
+    let Some(monitor) = monitor else {
+        tracing::warn!("No monitor reported; not positioning the orb");
+        return Ok(());
+    };
     let (origin, extent) = work(&monitor);
     let offset = offset(orb.corner, size);
     let saved = orb.position.unwrap_or(Point {
@@ -250,6 +277,6 @@ pub fn create_pointer(app: &AppHandle, show_in_captures: bool) -> Result<Webview
         .focused(false)
         .visible(false)
         .build()?;
-    window.set_ignore_cursor_events(true)?;
+    click_through(&window)?;
     Ok(window)
 }

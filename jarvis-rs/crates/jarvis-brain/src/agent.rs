@@ -28,7 +28,9 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
     tools::screens::reset();
     let settings = ctx.settings.get();
     let mut context = json!({"local_time":chrono::Local::now().to_rfc3339(),"user_title":settings.user_title,"user_name":settings.user_name,
-        "personality":settings.personality,"safety_mode":settings.safety_mode,"game_mode":game,"location":settings.location,
+        "personality":settings.personality,"language":{"code":settings.language_code(),"name":settings.language_name()},
+        "os":std::env::consts::OS,"home_address_saved":jarvis_core::paths::secret("HOME_ADDRESS").is_some(),
+        "maps_ready":jarvis_core::paths::secret("MAPBOX_ACCESS_TOKEN").is_some() && settings.location.show_maps,"safety_mode":settings.safety_mode,"game_mode":game,"location":settings.location,
         "screens":jarvis_desktop::monitors::list(),"enabled_routines":ctx.db.list_routines()?.into_iter().filter(|r|r.enabled).collect::<Vec<_>>()});
     {
         use jarvis_core::model::MemoryKind;

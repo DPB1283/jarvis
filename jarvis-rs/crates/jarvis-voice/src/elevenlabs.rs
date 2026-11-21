@@ -45,14 +45,19 @@ pub async fn transcribe(
     changes: mpsc::Sender<(u64, Transcript)>,
     generation: u64,
     silence: f64,
+    language: &str,
     stop: CancellationToken,
 ) {
     let task = async {
         let key = api_key()?;
-        let url = format!(
+        let mut url = format!(
             "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v3_live&audio_format=pcm_16000&commit_strategy=vad&vad_silence_threshold_secs={:.2}",
             silence.clamp(0.3, 3.0),
         );
+        // English keeps the automatic detection it always had; the other languages are told which to expect.
+        if matches!(language, "es" | "fr" | "de" | "yue") {
+            url.push_str(&format!("&language_code={language}"));
+        }
         let mut request = url.into_client_request()?;
         request.headers_mut().insert("xi-api-key", key.parse()?);
         let (mut socket, _) = tokio_tungstenite::connect_async(request).await?;
@@ -153,6 +158,7 @@ pub async fn stream_speech(
     text: &str,
     voice: &Voice,
     selected: &str,
+    language: &str,
     stop: &CancellationToken,
 ) -> Result<()> {
     let key = api_key()?;
@@ -162,11 +168,17 @@ pub async fn stream_speech(
             .post(format!("{API}/v1/text-to-speech/{id}/stream"))
             .query(&[("output_format", "pcm_24000")])
             .header("xi-api-key", key)
-            .json(&json!({
-                "text": text,
-                "model_id":"eleven_v4_turbo",
-                "voice_settings":{"speed":voice.speed,"stability":voice.stability},
-            }))
+            .json(&{
+                let mut body = json!({
+                    "text": text,
+                    "model_id":"eleven_v4_turbo",
+                    "voice_settings":{"speed":voice.speed,"stability":voice.stability},
+                });
+                if matches!(language, "es" | "fr" | "de" | "yue") {
+                    body["language_code"] = json!(language);
+                }
+                body
+            })
             .send()
             .await?
             .error_for_status()?;

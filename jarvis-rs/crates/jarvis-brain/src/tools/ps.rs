@@ -3,6 +3,7 @@
 //! scripts proven in the Electron app; they move to native Win32 calls piece by piece.
 
 
+use super::NoWindow;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -10,7 +11,6 @@ use anyhow::{Result, anyhow};
 use base64::Engine;
 use tokio::io::AsyncReadExt;
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub struct PsResult {
     pub stdout: String,
@@ -19,6 +19,13 @@ pub struct PsResult {
 }
 
 pub async fn run_ps(script: &str, timeout: Duration) -> PsResult {
+    if cfg!(not(windows)) {
+        return PsResult {
+            stdout: String::new(),
+            stderr: "This action needs Windows PowerShell, which is not available on Linux.".into(),
+            code: Some(-1),
+        };
+    }
     let full = format!("$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[Text.Encoding]::UTF8;\n{script}");
     let utf16: Vec<u8> = full.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(&utf16);
@@ -37,7 +44,7 @@ pub async fn run_ps(script: &str, timeout: Duration) -> PsResult {
         cmd.arg("-File").arg(&p);
         temp = Some(p);
     }
-    cmd.creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    cmd.no_window().stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     let result = async {
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
         let (mut out, mut err) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());

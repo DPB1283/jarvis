@@ -7,6 +7,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 
+/// The Vosk speech library's file name on this OS (Linux builds: download libvosk.so from the Vosk releases).
+#[cfg(windows)]
+const VOSK_LIBRARY: &str = "libvosk.dll";
+#[cfg(not(windows))]
+const VOSK_LIBRARY: &str = "libvosk.so";
+
 type Ptr = *mut c_void;
 type ResultJson = unsafe extern "C" fn(Ptr) -> *const c_char;
 
@@ -83,11 +89,15 @@ impl Detector {
             .map(std::path::PathBuf::from)
             // Join segments one by one: LoadLibraryEx with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR rejects a path
             // that mixes "\" and "/" (os error 126), which is how the installed build lost its wake word.
-            .or_else(||jarvis_core::paths::packaged_resources().map(|dir|dir.join("bin").join("libvosk.dll")).filter(|p|p.is_file()))
+            .or_else(||jarvis_core::paths::packaged_resources().map(|dir|dir.join("bin").join(VOSK_LIBRARY)).filter(|p|p.is_file()))
             .or_else(|| {
                 [
-                    home.join("bin").join("libvosk.dll"),
-                    home.join("node_modules").join("vosk-koffi").join("bin-win32-x64").join("libvosk.dll"),
+                    home.join("bin").join(VOSK_LIBRARY),
+                    home.join("node_modules").join("vosk-koffi").join("bin-win32-x64").join(VOSK_LIBRARY),
+                    #[cfg(not(windows))]
+                    std::path::PathBuf::from("/usr/local/lib").join(VOSK_LIBRARY),
+                    #[cfg(not(windows))]
+                    std::path::PathBuf::from("/usr/lib").join(VOSK_LIBRARY),
                 ]
                 .into_iter()
                 .find(|file| file.is_file())

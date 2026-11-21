@@ -3,6 +3,7 @@ import type { JarvisApi } from "../shared/events";
 const keys = [
   { id: "ANTHROPIC_API_KEY", title: "Anthropic API key", help: "Required for Jarvis to answer. Create a key in the Anthropic Console." },
   { id: "ELEVENLABS_API_KEY", title: "ElevenLabs API key", help: "Required for voice input and speech. Create a key in your ElevenLabs account." },
+  { id: "MAPBOX_ACCESS_TOKEN", title: "Mapbox access token", help: "Optional. Lets Jarvis work out travel times and show maps. A free Mapbox account is enough; create a public access token (starts with pk.) on your Mapbox account page." },
   { id: "XWEATHER_CLIENT_ID", title: "Xweather client ID", help: "Optional. Find it in your Xweather account." },
   { id: "XWEATHER_CLIENT_SECRET", title: "Xweather client secret", help: "Optional. Find it in your Xweather account." },
 ] as const;

@@ -15,6 +15,12 @@ export function mountHud() {
   const activityText = document.querySelector<HTMLElement>("#activity-text")!;
   const activityPercent = document.querySelector<HTMLElement>("#activity-percent")!;
   const activityFill = document.querySelector<HTMLElement>("#activity-fill")!;
+  const mapCard = document.querySelector<HTMLElement>("#map-card")!;
+  const mapImage = document.querySelector<HTMLImageElement>("#map-image")!;
+  const mapTitle = document.querySelector<HTMLElement>("#map-title")!;
+  const mapCaption = document.querySelector<HTMLElement>("#map-caption")!;
+  const mapClose = document.querySelector<HTMLButtonElement>("#map-close")!;
+  let mapTimer: ReturnType<typeof setTimeout> | undefined;
   const fullAccess = document.querySelector<HTMLElement>("#full-access")!;
   const approvals = document.querySelector<HTMLElement>("#approvals")!;
   const form = document.querySelector<HTMLFormElement>("#message-form")!;
@@ -32,6 +38,25 @@ export function mountHud() {
   let toastTimer: ReturnType<typeof setTimeout>;
   let activityDelay: ReturnType<typeof setTimeout> | undefined;
   let activityStale: ReturnType<typeof setTimeout> | undefined;
+
+  // A map (route or place) next to the orb. It closes itself after a while, or with the x.
+  function hideMap() {
+    clearTimeout(mapTimer);
+    mapCard.hidden = true;
+    mapImage.removeAttribute("src");
+  }
+  function showMap(value: BusEvents["map"]) {
+    if (gameMode) return;
+    clearTimeout(mapTimer);
+    mapImage.src = `data:image/png;base64,${value.image}`;
+    mapImage.alt = value.title;
+    mapTitle.textContent = value.title;
+    mapCaption.textContent = value.caption;
+    mapCaption.hidden = !value.caption;
+    mapCard.hidden = false;
+    mapTimer = setTimeout(hideMap, 45_000);
+  }
+  mapClose.addEventListener("click", hideMap);
 
   // The "he is working on it" chip. It waits a moment before appearing so quick tools do not flicker, and
   // hides itself if the brain somehow never says it finished.
@@ -169,7 +194,10 @@ export function mountHud() {
         // Hide only when the orb shares the game's screen (main sends hideHud); on another monitor he stays.
         gameMode = event.hideHud ?? event.active;
         orb.hidden = gameMode;
-        if (gameMode) setActivity({ text: "", active: false });
+        if (gameMode) {
+          setActivity({ text: "", active: false });
+          hideMap();
+        }
         if (gameMode) {
           hideInput();
           toast.hidden = true;
@@ -181,6 +209,9 @@ export function mountHud() {
         break;
       case "activity":
         setActivity(event);
+        break;
+      case "map":
+        showMap(event);
         break;
       case "timers":
         receivedTimers = true;
