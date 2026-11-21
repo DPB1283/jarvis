@@ -1,6 +1,7 @@
 import type { BusEvents } from "../shared/events";
 import { createHolo, type Holo, type Vec3 } from "./holo";
 import { holoTimeline } from "./holo-timeline";
+import { holoChart, holoOrbit, isScaledOrbit } from "./holo-flat";
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string) {
   const node = document.createElement(tag);
@@ -12,6 +13,7 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 const string = (value: unknown) => typeof value === "string" ? value : "";
+const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 const list = (value: unknown) => Array.isArray(value) ? value.map(record) : [];
 const IDLE_SPIN = .12;
 
@@ -337,6 +339,20 @@ export function mountVisuals(
     } else if (value.kind === "timeline") {
       const events = list(data.events).map(event => ({ when: string(event.when), title: string(event.title), detail: string(event.detail) || undefined }));
       cleanup = holoTimeline(surface, holo, events, motion.matches);
+    } else if (value.kind === "orbit") {
+      const bodies = list(data.bodies).map(body => ({
+        label: string(body.label), detail: string(body.detail) || undefined,
+        period: number(body.period), size: number(body.size), distance: number(body.distance),
+      })).filter(body => body.label);
+      const orbit = { center: string(data.center) || value.title, centerDetail: string(data.centerDetail) || undefined, bodies };
+      cleanup = holoOrbit(surface, holo, orbit, motion.matches);
+      if (isScaledOrbit(orbit)) caption.textContent = "Ring spacing: square root of true distance · speeds in true ratio · sizes not to scale";
+    } else if (value.kind === "chart") {
+      const bars = list(data.bars).flatMap(bar => {
+        const amount = number(bar.value);
+        return string(bar.label) && amount !== undefined ? [{ label: string(bar.label), value: amount, detail: string(bar.detail) || undefined }] : [];
+      });
+      cleanup = holoChart(surface, holo, { unit: string(data.unit) || undefined, bars }, motion.matches);
     } else {
       const src = string(data.src);
       if (/^data:image\/(?:png|jpeg|gif|webp|avif);base64,[\w+/=]+$/i.test(src)) {

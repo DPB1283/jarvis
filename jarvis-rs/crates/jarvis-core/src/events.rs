@@ -96,7 +96,7 @@ pub enum Event {
     /// brain → renderer: a map to show next to the orb. `image` is a base64 PNG.
     Map { title: String, caption: String, image: String },
     /// brain → renderer: something to draw INSIDE the orb (it expands to show it). `kind` is "web" (a network of
-    /// nodes), "timeline" or "image"; `data` has the shape for that kind (see shared/events.ts).
+    /// nodes), "timeline", "image", "orbit" (flat, things circling a centre) or "chart" (bars); `data` has the shape for that kind (see shared/events.ts).
     Visual {
         kind: String,
         title: String,

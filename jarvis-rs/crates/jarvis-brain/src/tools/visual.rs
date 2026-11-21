@@ -1,5 +1,5 @@
 //! `show_visual`: draw something inside the orb itself. The orb expands to show a network of connected ideas, a
-//! timeline, or an image, then shrinks back. The tool only validates and tidies the data and emits an event;
+//! timeline, an image, a flat orbit diagram or a bar chart, then shrinks back. The tool only validates and tidies the data and emits an event;
 //! the drawing is done by the HUD (see `Event::Visual`).
 
 use super::{ToolDef, s, safe};
@@ -52,6 +52,46 @@ pub(crate) fn timeline_data(input: &Value) -> Result<Value> {
     }
     ensure!(events.len() >= 2, "A timeline needs at least two events");
     Ok(json!({"events": events}))
+}
+
+/// Things going round a centre (planets round the Sun, moons round a planet, electron shells round a nucleus),
+/// listed from the inside out. `distance` (any one unit, e.g. AU) and `period` (any one unit, e.g. years) are real
+/// figures: with a distance on every body the renderer draws true relative spacing and speed. `size` is 1-5.
+pub(crate) fn orbit_data(input: &Value) -> Result<Value> {
+    let center = clip(input["center"].as_str().unwrap_or_default(), 40);
+    ensure!(!center.is_empty(), "An orbit needs a center (the thing in the middle)");
+    let positive = |v: &Value| v.as_f64().filter(|n| n.is_finite() && *n > 0.0);
+    let mut bodies = Vec::new();
+    for body in input["bodies"].as_array().context("An orbit needs a list of bodies")?.iter().take(12) {
+        let label = clip(body["label"].as_str().unwrap_or_default(), 32);
+        if label.is_empty() {
+            continue;
+        }
+        bodies.push(json!({
+            "label": label,
+            "detail": body["detail"].as_str().map(|d| clip(d, 160)),
+            "period": positive(&body["period"]),
+            "distance": positive(&body["distance"]),
+            "size": positive(&body["size"]).map(|n| n.clamp(1.0, 5.0)),
+        }));
+    }
+    ensure!(!bodies.is_empty(), "An orbit needs at least one body");
+    Ok(json!({"center": center, "centerDetail": s(input, "center_detail").map(|d| clip(d, 160)), "bodies": bodies}))
+}
+
+/// Amounts to compare as bars. Negative or missing values are dropped (bars only grow one way).
+pub(crate) fn chart_data(input: &Value) -> Result<Value> {
+    let mut bars = Vec::new();
+    for bar in input["bars"].as_array().context("A chart needs a list of bars")?.iter().take(12) {
+        let label = clip(bar["label"].as_str().unwrap_or_default(), 40);
+        let Some(value) = bar["value"].as_f64().filter(|n| n.is_finite() && *n >= 0.0) else { continue };
+        if label.is_empty() {
+            continue;
+        }
+        bars.push(json!({"label": label, "value": value, "detail": bar["detail"].as_str().map(|d| clip(d, 160))}));
+    }
+    ensure!(bars.len() >= 2, "A chart needs at least two bars with a label and a number of zero or more");
+    Ok(json!({"unit": s(input, "unit").map(|u| clip(u, 20)), "bars": bars}))
 }
 
 /// When the open orb display closes by itself (None when nothing is showing). A click on the HUD's close button
@@ -143,13 +183,17 @@ pub fn tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "show_visual",
-            description: "Draw something INSIDE the orb: it expands, shows it, then shrinks back. kind web: a network of connected ideas (nodes with id and label, links between node ids), good for 'how are these related' or explaining connections. kind timeline: events in order (when, title, optional detail). kind image: a picture from image_url or image_path with a caption. Keep labels short. Use it when a picture explains better than words; still say the key point out loud.",
+            description: "Draw something INSIDE the orb: it expands, shows it, then shrinks back. Pick the kind that fits the question best. kind orbit: a flat diagram of things going round a centre (the solar system, a planet's moons, an atom's electron shells): center is the label in the middle, bodies are listed from the inside out with label, size 1-5, detail, and for anything real BOTH distance (from the centre, in any single unit, e.g. AU) and period (one time unit throughout, e.g. Earth years): with a distance on every body the diagram is drawn to true relative distance and speed, so always give real figures for the solar system (Mercury 0.39 AU / 0.24 y, Venus 0.72 / 0.62, Earth 1 / 1, Mars 1.52 / 1.88, Jupiter 5.2 / 11.86, Saturn 9.54 / 29.4, Uranus 19.2 / 84, Neptune 30.1 / 165) and for real moons. Leave distance out only for schematics such as an atom's shells, which are then spaced evenly. kind chart: bars comparing amounts (heights, populations, prices, distances, scores, percentages): bars with label and a number value of zero or more, plus a unit like 'km', 'million people' or '%'. kind timeline: history or steps in order (when, title, optional detail). kind web: how things are related or the parts of a system (nodes with id and label, links between node ids). kind image: what something looks like, from image_url or image_path with a caption. Keep labels short. Use it when a picture explains better than words; still say the key point out loud.",
             schema: || json!({"type":"object","required":["kind","title"],"properties":{
-                "kind":{"type":"string","enum":["web","timeline","image"]},
+                "kind":{"type":"string","enum":["orbit","chart","timeline","web","image"]},
                 "title":{"type":"string","description":"A short heading shown above the picture"},
                 "nodes":{"type":"array","maxItems":40,"items":{"type":"object","required":["label"],"properties":{"id":{"type":"string"},"label":{"type":"string"},"group":{"type":"string"}}}},
                 "links":{"type":"array","maxItems":120,"items":{"type":"object","required":["from","to"],"properties":{"from":{"type":"string"},"to":{"type":"string"},"label":{"type":"string"}}}},
-                "center":{"type":"string","description":"web: the id of the main node"},
+                "center":{"type":"string","description":"web: the id of the main node. orbit: the label of the thing in the middle"},
+                "center_detail":{"type":"string","description":"orbit: a short fact about the centre"},
+                "bodies":{"type":"array","maxItems":12,"items":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"detail":{"type":"string"},"period":{"type":"number","exclusiveMinimum":0},"distance":{"type":"number","exclusiveMinimum":0},"size":{"type":"number","minimum":1,"maximum":5}}}},
+                "bars":{"type":"array","maxItems":12,"items":{"type":"object","required":["label","value"],"properties":{"label":{"type":"string"},"value":{"type":"number","minimum":0},"detail":{"type":"string"}}}},
+                "unit":{"type":"string","description":"chart: the unit after each number"},
                 "events":{"type":"array","maxItems":24,"items":{"type":"object","required":["when","title"],"properties":{"when":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"}}}},
                 "image_url":{"type":"string"},"image_path":{"type":"string"},"caption":{"type":"string"},
                 "seconds":{"type":"integer","minimum":5,"maximum":300,"description":"How long to keep it open (default 60)"},
@@ -163,6 +207,8 @@ pub fn tools() -> Vec<ToolDef> {
                         "web" => web_data(&v)?,
                         "timeline" => timeline_data(&v)?,
                         "image" => image_data(&v).await?,
+                        "orbit" => orbit_data(&v)?,
+                        "chart" => chart_data(&v)?,
                         other => bail!("Unknown visual kind {other}"),
                     };
                     let title = clip(s(&v, "title").unwrap_or("Jarvis"), 60);
@@ -196,7 +242,7 @@ pub fn tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "resize_visual",
-            description: "Make the open orb display (the 3D web, timeline or image) bigger, or back to its normal size. 'Expand it', 'make it bigger', 'full screen' → large true; 'shrink it', 'smaller' → large false.",
+            description: "Make the open orb display (web, timeline, image, orbit or chart) bigger, or back to its normal size. 'Expand it', 'make it bigger', 'full screen' → large true; 'shrink it', 'smaller' → large false.",
             schema: || json!({"type":"object","required":["large"],"properties":{"large":{"type":"boolean"}}}),
             risk: safe,
             summary: |v| if v["large"].as_bool() == Some(false) { "shrink the orb display".into() } else { "expand the orb display".into() },
@@ -240,6 +286,33 @@ mod tests {
         let data = timeline_data(&json!({"events":[{"when":"1969","title":"Moon landing"},{"when":"","title":"No date"},{"when":"1981","title":"First shuttle","detail":"Columbia"}]})).unwrap();
         assert_eq!(data["events"].as_array().unwrap().len(), 2);
         assert!(timeline_data(&json!({"events":[{"when":"1969","title":"Alone"}]})).is_err());
+    }
+
+    #[test]
+    fn orbits_keep_bodies_in_order_and_tidy_numbers() {
+        let data = orbit_data(&json!({
+            "center": "Sun", "center_detail": "A star",
+            "bodies": [{"label":"Mercury","period":0.24,"distance":0.39,"size":1},{"label":""},{"label":"Earth","period":1,"distance":1,"size":9,"detail":"Home"},{"label":"Rogue","period":-3,"distance":0,"size":"big"}]
+        })).unwrap();
+        let bodies = data["bodies"].as_array().unwrap();
+        assert_eq!(bodies.len(), 3, "the unlabelled body is skipped: {bodies:?}");
+        assert_eq!(bodies[1]["label"], "Earth");
+        assert_eq!(bodies[1]["size"], 5.0, "size is clamped to 1-5");
+        assert_eq!(bodies[0]["distance"], 0.39);
+        assert!(bodies[2]["period"].is_null() && bodies[2]["size"].is_null() && bodies[2]["distance"].is_null(), "bad numbers are dropped, not fatal");
+        assert_eq!(data["center"], "Sun");
+        assert_eq!(data["centerDetail"], "A star");
+        assert!(orbit_data(&json!({"bodies":[{"label":"Moon"}]})).is_err(), "needs a centre");
+        assert!(orbit_data(&json!({"center":"Sun","bodies":[]})).is_err());
+    }
+
+    #[test]
+    fn charts_need_two_usable_bars() {
+        let data = chart_data(&json!({"unit":"m","bars":[{"label":"Burj Khalifa","value":828},{"label":"Shanghai Tower","value":632.0,"detail":"China"},{"label":"Hole","value":-5},{"label":"Nothing"},{"label":"","value":3}]})).unwrap();
+        assert_eq!(data["bars"].as_array().unwrap().len(), 2);
+        assert_eq!(data["unit"], "m");
+        assert!(chart_data(&json!({"bars":[{"label":"Alone","value":1}]})).is_err());
+        assert!(chart_data(&json!({})).is_err());
     }
 
     #[test]

@@ -68,8 +68,10 @@ export interface BusEvents {
    *  - "web":      { nodes: {id, label, group?}[], links: {from, to, label?}[], center?: id }  (the orb's dots become the nodes)
    *  - "timeline": { events: {when, title, detail?}[] }
    *  - "image":    { src: "data:image/...;base64,...", caption? }  (shown clipped to the circle)
+   *  - "orbit":    { center, centerDetail?, bodies: {label, detail?, period?, distance?, size? (1-5)}[] }  (flat; with a distance on every body it is drawn to true relative distance and period)
+   *  - "chart":    { unit?, bars: {label, value, detail?}[] }  (flat horizontal bars)
    */
-  visual: { kind: "web" | "timeline" | "image"; title: string; data: unknown; ttlSeconds?: number | null };
+  visual: { kind: "web" | "timeline" | "image" | "orbit" | "chart"; title: string; data: unknown; ttlSeconds?: number | null };
   visual_close: Record<string, never>;
   /** Make the open orb display bigger (large) or back to normal. */
   visual_size: { large: boolean };

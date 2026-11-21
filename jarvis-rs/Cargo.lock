@@ -2084,7 +2084,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "jarvis-app"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "jarvis-brain",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-brain"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2148,7 +2148,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-desktop"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-voice"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

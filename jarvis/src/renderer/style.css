@@ -520,6 +520,52 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
   .holo-image, .holo-image-scan { animation: none; }
   .visual-surface { transition: none; }
 }
+/* Flat pictures (holo-flat.ts): an orbit diagram and a bar chart facing the viewer inside the sphere. */
+.visual-flat { position: absolute; inset: 0; z-index: 3; border-radius: 50%; }
+.visual-flat canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.visual-flat-detail, .visual-chart-detail {
+  position: absolute; left: 50%; bottom: 13%; transform: translateX(-50%);
+  width: max-content; max-width: 62%; margin: 0; padding: 4px 9px; z-index: 50;
+  font: 500 12px/1.35 system-ui, sans-serif; text-align: center; color: var(--text);
+  background: color-mix(in srgb, #04141a 88%, transparent);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.visual-chart {
+  position: absolute; inset: 17% 15%; z-index: 3;
+  display: flex; flex-direction: column; justify-content: center;
+  container-type: inline-size;
+}
+/* One shared set of columns for every row (subgrid), so all the bar tracks start and end at the same x and the
+   bars really are drawn to one scale. */
+.visual-chart-bars {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: fit-content(38%) minmax(0, 1fr) max-content;
+  column-gap: 2.5cqw; row-gap: clamp(3px, 1.6cqw, 24px);
+}
+.visual-chart-bars li { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; }
+.visual-chart-row {
+  display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center;
+  width: 100%; min-height: 0; padding: 0; border: 0; background: none; cursor: default;
+  font: 600 clamp(9px, min(4.2cqw, 46cqw / var(--rows)), 40px)/1.2 system-ui, sans-serif;
+  color: color-mix(in srgb, var(--aqua) 55%, white);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--aqua) 45%, transparent);
+}
+.visual-chart-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.visual-chart-value { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.visual-chart-track { height: clamp(6px, min(3.6cqw, 40cqw / var(--rows)), 40px); border-radius: 3px; background: color-mix(in srgb, var(--aqua) 10%, transparent); }
+.visual-chart-fill {
+  display: block; width: 0; height: 100%; border-radius: 3px;
+  background: color-mix(in srgb, var(--aqua) 55%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--aqua) 40%, transparent);
+  transition: width .7s cubic-bezier(.2, .8, .3, 1);
+}
+.visual-chart-row.top .visual-chart-fill { background: var(--aqua); }
+.visual-chart-row.top { color: white; }
+.visual-chart-row:hover .visual-chart-fill, .visual-chart-row:focus-visible .visual-chart-fill { background: color-mix(in srgb, var(--aqua) 80%, white); }
+.visual-chart-detail { position: static; transform: none; margin: clamp(4px, 3cqw, 28px) auto 0; max-width: 100%; }
+.visual-chart-detail:empty { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { .visual-chart-fill { transition: none; } }
+
 .hud[data-visual-open] .orb { opacity: 0 !important; pointer-events: none; }
 .hud[data-visual-open] .captions { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .orb-visual { transition: none; } }
