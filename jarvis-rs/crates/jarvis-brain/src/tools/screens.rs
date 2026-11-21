@@ -397,7 +397,8 @@ async fn save(v: &Value, memory: bool, orb: &jarvis_core::settings::Orb) -> Resu
     ))
     .await;
     let r = area(v, orb)?;
-    let mut dir = home_dir()?.join("Pictures/Jarvis Screenshots");
+    // One segment at a time: a "/" inside a Windows path breaks Explorer when the screenshot is opened later.
+    let mut dir = home_dir()?.join("Pictures").join("Jarvis Screenshots");
     if memory {
         dir.push("Memories");
     }
@@ -486,9 +487,11 @@ pub fn tools() -> Vec<ToolDef> {
             summary: |_| "use a saved screenshot".into(),
             run: |_, v| {
                 Box::pin(async move {
+                    // Older screenshots (and paths the model types) can have "/" in them; Explorer needs "\".
                     let path = s(&v, "path")
                         .map(PathBuf::from)
                         .or_else(|| LATEST.lock().unwrap().clone())
+                        .map(|p| PathBuf::from(jarvis_core::paths::native(&p.to_string_lossy())))
                         .context("No screenshot available")?;
                     ensure!(path.is_file(), "Screenshot does not exist");
                     let p = path.to_string_lossy();
@@ -499,9 +502,14 @@ pub fn tools() -> Vec<ToolDef> {
                                 .spawn()?;
                         }
                         Some("show_in_folder") => {
-                            std::process::Command::new("explorer.exe")
-                                .arg(format!("/select,{p}"))
-                                .spawn()?;
+                            // Explorer wants /select,"C:\a b\c.png"; normal argument quoting would wrap the whole
+                            // thing in quotes, which it doesn't understand (it opens Documents instead).
+                            let mut command = std::process::Command::new("explorer.exe");
+                            #[cfg(windows)]
+                            std::os::windows::process::CommandExt::raw_arg(&mut command, format!("/select,\"{p}\""));
+                            #[cfg(not(windows))]
+                            command.arg(path.parent().unwrap_or(&path));
+                            command.spawn()?;
                         }
                         Some("copy") => {
                             ps(&format!("$ErrorActionPreference='Stop';Add-Type -AssemblyName System.Drawing,System.Windows.Forms;$i=[Drawing.Image]::FromFile({});[Windows.Forms.Clipboard]::SetImage($i)",psq(&p))).await?;

@@ -12,8 +12,9 @@
   @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
   h1 { grid-column:1/-1; margin:0; font-size:20px; font-weight:600; letter-spacing:.02em; }
   h1 span { color:var(--teal); }
-  #board { display:grid; grid-template-columns:repeat(8,1fr); aspect-ratio:1; border:2px solid var(--line); border-radius:8px; overflow:hidden; user-select:none; }
-  .sq { position:relative; display:flex; align-items:center; justify-content:center; font-size:min(8vw, 52px); cursor:pointer; }
+  /* Eight equal rows: without them, ranks with pieces grew taller than the empty ones. Pieces scale with the board. */
+  #board { display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr); aspect-ratio:1; container-type:inline-size; border:2px solid var(--line); border-radius:8px; overflow:hidden; user-select:none; }
+  .sq { position:relative; display:flex; align-items:center; justify-content:center; min-width:0; min-height:0; overflow:hidden; font-size:9.4cqw; cursor:pointer; }
   .sq.l { background:var(--light); } .sq.d { background:var(--dark); }
   .sq.last::after, .sq.sel::after, .sq.hint::after { content:""; position:absolute; inset:0; background:var(--last); }
   .sq.sel::after { background:var(--hi); } .sq.hint::after { background:#9b5cff66; }

@@ -39,6 +39,17 @@ fn config_root() -> Option<PathBuf> {
     }
 }
 
+/// A path in the form Explorer and the Windows shell accept: backslashes only, no `\\?\` prefix. File APIs take
+/// "C:\Users\me/Pictures", but Explorer doesn't: given one, it quietly opens Documents instead.
+pub fn native(path: &str) -> String {
+    if cfg!(windows) {
+        let path = path.trim().trim_matches('"');
+        path.strip_prefix(r"\\?\").unwrap_or(path).replace('/', "\\")
+    } else {
+        path.to_owned()
+    }
+}
+
 pub fn data_dir() -> PathBuf {
     let dir = std::env::var("JARVIS_DATA_DIR")
         .map(PathBuf::from)
@@ -88,4 +99,19 @@ pub fn secret(name: &str) -> Option<String> {
     }
     load_env();
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn explorer_gets_backslash_paths() {
+        assert_eq!(
+            super::native(r"C:\Users\me\Pictures/Jarvis Screenshots\Screenshot 1.png"),
+            r"C:\Users\me\Pictures\Jarvis Screenshots\Screenshot 1.png"
+        );
+        assert_eq!(super::native(r"\\?\C:\a\b.png"), r"C:\a\b.png");
+        assert_eq!(super::native("\"C:/a b/c.png\""), r"C:\a b\c.png");
+        let joined = std::path::PathBuf::from(r"C:\Users\me").join("Pictures").join("Jarvis Screenshots");
+        assert!(!joined.to_string_lossy().contains('/'), "the screenshot folder is built one segment at a time");
+    }
 }

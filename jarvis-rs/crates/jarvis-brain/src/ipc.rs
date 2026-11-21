@@ -204,7 +204,7 @@ pub(crate) fn crate_builtin_chat_apps() -> Vec<ChatAppProfile> {
 }
 
 fn open_path(path: &str) -> anyhow::Result<()> {
-    std::process::Command::new("explorer.exe").arg(path).spawn()?;
+    std::process::Command::new("explorer.exe").arg(jarvis_core::paths::native(path)).spawn()?;
     Ok(())
 }
 

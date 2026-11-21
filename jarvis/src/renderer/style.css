@@ -529,9 +529,41 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
 .onboarding meter { width: 100%; }
 .update-notice { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
 .update-notes { max-height: 170px; overflow: auto; white-space: pre-wrap; }
-.app-rule { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-bottom: 12px; }
-.app-rule .setting { flex: 1 1 94px; }
-.briefing-days { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
+/* App rules: one small card per rule, each field's label above its control (not full settings rows). */
+.app-rule {
+  display: grid; grid-template-columns: minmax(140px, 1fr) auto minmax(110px, auto) auto auto;
+  align-items: end; gap: 8px 16px;
+  padding: 10px 12px; margin: 8px 0 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.app-rule .setting,
+.app-rule .setting + .setting {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  min-height: 0; padding: 0; border: 0;
+}
+.app-rule .setting { min-width: 0; }
+.app-rule .setting > :first-child { white-space: nowrap; }
+.app-rule .setting > :last-child { width: 100%; }
+.app-rule .setting input[type=checkbox] { width: 18px; height: 18px; margin: 6px 0; }
+.app-rule > button { align-self: end; }
+@container (max-width: 520px) {
+  .app-rule { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .app-rule .setting:first-child { grid-column: 1 / -1; }
+  .app-rule > button { grid-column: 1 / -1; justify-self: end; }
+}
+/* Morning briefing days: compact chips (box then day) lined up under the Time field, not full settings rows. */
+.briefing-days {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 2px 0 12px; padding-left: calc(var(--control-inset) + 12px);
+}
+.briefing-days .setting,
+.briefing-days .setting + .setting {
+  display: inline-flex; flex-direction: row-reverse; align-items: center; gap: 6px;
+  min-height: 0; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.briefing-days .setting:has(input:checked) { border-color: var(--aqua); color: var(--text); }
+@container (max-width: 355px) { .briefing-days { padding-left: 0; } }
 
 .activity.leaving { animation: activity-out .16s ease-in forwards; }
 @keyframes activity-out { to { opacity: 0; } }
