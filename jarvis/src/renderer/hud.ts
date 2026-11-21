@@ -274,8 +274,15 @@ export function mountHud() {
   }).catch(() => showToast("Could not load settings.", "error"));
   if ("__TAURI_INTERNALS__" in window) {
     void Promise.all([api.invoke("secrets:status"), api.invoke("settings:get")]).then(([keys, config]) => {
-      const missing = [!keys.ANTHROPIC_API_KEY && "Anthropic", config.voice.enabled && !keys.ELEVENLABS_API_KEY && "ElevenLabs"].filter(Boolean);
-      if (missing.length) showToast(`Add your ${missing.join(" and ")} API key in Settings → API keys.`, "warn");
+      const other = config.provider?.kind === "openai";
+      const local = /^https?:\/\/(localhost|127\.|\[::1\]|192\.168\.|10\.)/i.test(config.provider?.baseUrl ?? "");
+      const ai = other ? Boolean(config.provider?.baseUrl && config.provider?.model && (keys.AI_API_KEY || local)) : Boolean(keys.ANTHROPIC_API_KEY);
+      if (!ai) {
+        // No AI: free mode. Say what that means once, calmly.
+        showToast("Free mode: I only know a few commands (type \"help\") and I answer in text. Add an AI key in Settings → API keys for everything else.", "info");
+      } else if (config.voice.enabled && !keys.ELEVENLABS_API_KEY) {
+        showToast("Add your ElevenLabs API key in Settings → API keys for voice, or turn voice off in Settings.", "warn");
+      }
     }).catch(() => {});
   }
   void api.invoke("timers:list").then(timers => {

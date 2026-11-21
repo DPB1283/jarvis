@@ -390,3 +390,6 @@ input[type=checkbox], input[type=range] { accent-color: var(--aqua); }
 }
 .address-box { display: grid; gap: 6px; }
 .address-box .actions { align-items: center; }
+
+.provider-others { display: grid; gap: 8px; margin: 8px 0; }
+.provider-others[hidden] { display: none; }

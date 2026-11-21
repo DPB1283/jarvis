@@ -17,6 +17,8 @@ export type OrbCorner = "top_right" | "top_left" | "bottom_right" | "bottom_left
 export interface Settings {
   /** How Jarvis usually addresses the user, e.g. "sir", "ma'am", "boss". */
   ultronMode: boolean;
+  /** Which AI answers (Rust app): Claude (default) or any OpenAI-compatible service. */
+  provider?: { kind: "anthropic" | "openai"; baseUrl: string; model: string };
   /** Language Jarvis speaks and understands (Rust app): en, es, fr, de, yue (Cantonese). */
   language?: Language;
   userTitle: string;

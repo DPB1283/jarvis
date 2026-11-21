@@ -279,8 +279,31 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     pub orb: Orb,
     pub launch_at_startup: bool,
+    /// Which AI answers: Claude (default) or any OpenAI-compatible service.
+    pub provider: Provider,
     /// Language Jarvis speaks and understands: en, es, fr, de or yue (Cantonese).
     pub language: String,
+}
+
+/// The AI behind the assistant. `kind` "anthropic" uses the Anthropic key; "openai" talks to any
+/// OpenAI-compatible chat-completions service (OpenAI, Google Gemini, OpenRouter, Groq, a local Ollama...) at
+/// `base_url` with `model`, using the key saved as AI_API_KEY (local servers need none).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Provider {
+    pub kind: String,
+    pub base_url: String,
+    pub model: String,
+}
+impl Default for Provider {
+    fn default() -> Self {
+        Self { kind: "anthropic".into(), base_url: String::new(), model: String::new() }
+    }
+}
+impl Provider {
+    pub fn is_openai(&self) -> bool {
+        self.kind == "openai"
+    }
 }
 
 /// The languages Jarvis supports: (code, English name). The same codes ElevenLabs speech recognition and
@@ -319,6 +342,7 @@ impl Default for Settings {
             hotkeys: Hotkeys::default(),
             orb: Orb::default(),
             launch_at_startup: false,
+            provider: Provider::default(),
             language: "en".into(),
         }
     }

@@ -35,10 +35,24 @@ After installing, start Jarvis, right-click the orb, open **Settings → API key
 
 ## What you need
 
-- An **Anthropic API key**, for the brain (Claude).
+Nothing, to start: with no keys Jarvis runs in **free mode** (below). For the full assistant:
+
+- An AI: an **Anthropic API key** for Claude (the default, and the most capable), **or** a key for any other
+  OpenAI-compatible service. You can add your own: OpenAI, Google Gemini, OpenRouter, Groq, or a model running on
+  your own PC with Ollama (no key needed). Pick it in Settings → API keys → *Which AI answers*.
 - An **ElevenLabs API key**, for the voice (speech recognition and spoken replies). Optional: turn voice off in
   Settings and use Jarvis as a text-only assistant.
 - Optional: a free **Mapbox** public token (travel times and maps) and Xweather credentials (weather alerts).
+
+## Free mode and other AIs
+
+- **Free mode** (no AI key): type to him (click the orb or press `Control+Space`) and a handful of everyday
+  commands work with preset text replies and no speech: the time and date, timers ("set a timer for 5 minutes",
+  "cancel the timers"), volume ("volume up", "set volume to 30", "mute"), "open Notepad", "take a screenshot",
+  "lock my PC", and "help". Nothing is sent anywhere. Add an AI key to unlock conversation, voice and everything else.
+- **Other AI services:** any service that speaks the OpenAI chat format works. Choose *Another AI*, pick a preset
+  (or Custom), enter the address, the model name and the service's key. All of Jarvis's tools work. What a
+  non-Claude model can't do is direct click-and-type screen control or built-in web search, which are Claude features.
 
 ## Add your API keys
 

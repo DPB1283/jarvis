@@ -8,12 +8,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// The only names that can be stored.
-pub const NAMES: [&str; 6] = [
+pub const NAMES: [&str; 7] = [
     "ANTHROPIC_API_KEY",
     "ELEVENLABS_API_KEY",
     "XWEATHER_CLIENT_ID",
     "XWEATHER_CLIENT_SECRET",
     "MAPBOX_ACCESS_TOKEN",
+    // Key for the "other AI" provider (OpenAI, Gemini, OpenRouter, Groq...) chosen in Settings.
+    "AI_API_KEY",
     // Not an API key: the user's home address. Stored here so it is encrypted, kept out of settings.json,
     // and never sent to the model (see tools/travel.rs).
     "HOME_ADDRESS",

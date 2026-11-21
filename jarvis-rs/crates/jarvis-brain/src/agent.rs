@@ -10,26 +10,22 @@ use tokio_util::sync::CancellationToken;
 use crate::{Ctx, anthropic::Client, chunker::SentenceChunker, dismiss, persona, policy, tools};
 
 #[derive(Clone, Default)]
-struct Session {
-    messages: Vec<Value>,
-    tokens: u64,
-    web_variant: usize,
-    last_reply: Option<Instant>,
+pub(crate) struct Session {
+    pub(crate) messages: Vec<Value>,
+    /// The same conversation in OpenAI chat format (used when the provider is an OpenAI-compatible service).
+    pub(crate) oa_messages: Vec<Value>,
+    pub(crate) tokens: u64,
+    pub(crate) web_variant: usize,
+    pub(crate) last_reply: Option<Instant>,
 }
 
-async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Result<Session> {
-    if session.tokens >= 150_000
-        || session
-            .last_reply
-            .is_some_and(|t| t.elapsed() >= Duration::from_secs(600))
-    {
-        session = Session::default();
-    }
-    tools::screens::reset();
+/// The text of a user turn: the context block (time, settings, remembered facts...) followed by what they said.
+/// Private data stays out of it: the home address is never included, only whether one is saved.
+pub(crate) fn user_turn(ctx: &Ctx, first_turn: bool, game: bool, input: &str) -> Result<String> {
     let settings = ctx.settings.get();
     let mut context = json!({"local_time":chrono::Local::now().to_rfc3339(),"user_title":settings.user_title,"user_name":settings.user_name,
         "personality":settings.personality,"language":{"code":settings.language_code(),"name":settings.language_name()},
-        "os":std::env::consts::OS,"home_address_saved":jarvis_core::paths::secret("HOME_ADDRESS").is_some(),
+        "os":std::env::consts::OS,"computer_use":!settings.provider.is_openai(),"home_address_saved":jarvis_core::paths::secret("HOME_ADDRESS").is_some(),
         "maps_ready":jarvis_core::paths::secret("MAPBOX_ACCESS_TOKEN").is_some() && settings.location.show_maps,"safety_mode":settings.safety_mode,"game_mode":game,"location":settings.location,
         "screens":jarvis_desktop::monitors::list(),"enabled_routines":ctx.db.list_routines()?.into_iter().filter(|r|r.enabled).collect::<Vec<_>>()});
     {
@@ -45,7 +41,7 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
                 .collect::<Vec<_>>()
         );
     }
-    if session.messages.is_empty() {
+    if first_turn {
         use jarvis_core::model::MemoryKind;
         context["open_todos"] = json!(
             ctx.db
@@ -55,9 +51,34 @@ async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Res
                 .count()
         );
     }
-    session
-        .messages
-        .push(json!({"role":"user","content":format!("[{context}]\n{input}")}));
+    Ok(format!("[{context}]\n{input}"))
+}
+
+/// The system prompt for the current settings (persona, plus the Ultron addendum when that mode is on).
+pub(crate) fn system_for(settings: &jarvis_core::Settings) -> String {
+    let mut system = persona::system_prompt().to_owned();
+    if settings.ultron_mode {
+        system.push('\n');
+        system.push_str(&jarvis_core::ultron::ULTRON.prompt);
+    }
+    system
+}
+
+async fn reply(ctx: Ctx, mut session: Session, input: String, game: bool) -> Result<Session> {
+    if session.tokens >= 150_000
+        || session
+            .last_reply
+            .is_some_and(|t| t.elapsed() >= Duration::from_secs(600))
+    {
+        session = Session::default();
+    }
+    tools::screens::reset();
+    let settings = ctx.settings.get();
+    if settings.provider.is_openai() {
+        return crate::openai::reply(ctx, session, input, game).await;
+    }
+    let content = user_turn(&ctx, session.messages.is_empty(), game, &input)?;
+    session.messages.push(json!({"role":"user","content":content}));
     let client = Client::from_env()?;
     let cancel = CancellationToken::new();
     let mut spoken = String::new();
@@ -233,11 +254,11 @@ fn ultron_command(text: &str) -> Option<bool> {
 
 /// Tells the HUD he is busy with something until dropped. Dropping also covers an aborted turn, so the
 /// "working" indicator can never get stuck on.
-struct Busy<'a> {
+pub(crate) struct Busy<'a> {
     bus: &'a Bus,
 }
 impl<'a> Busy<'a> {
-    fn new(bus: &'a Bus, summary: &str) -> Self {
+    pub(crate) fn new(bus: &'a Bus, summary: &str) -> Self {
         let mut chars = summary.trim().chars();
         let text = match chars.next() {
             Some(first) => format!("{}{}…", first.to_uppercase(), chars.as_str()),
@@ -377,6 +398,17 @@ pub fn start(ctx: Ctx) -> tokio::task::JoinHandle<()> {
                 ctx.bus.emit(Event::Interrupt {
                     reason: InterruptReason::User,
                 });
+                ctx.bus.emit(Event::State {
+                    state: JarvisState::Idle,
+                });
+            } else if !crate::provider::ready(&ctx.settings.get()) {
+                // Free mode: no AI key. A few commands are answered locally with preset text, and nothing is spoken.
+                ctx.bus.emit(Event::State {
+                    state: JarvisState::Thinking,
+                });
+                let text = crate::free::respond(&ctx, &input).await;
+                ctx.bus.emit(Event::AssistantDelta { text: text.clone() });
+                ctx.bus.emit(Event::AssistantDone { text });
                 ctx.bus.emit(Event::State {
                     state: JarvisState::Idle,
                 });
